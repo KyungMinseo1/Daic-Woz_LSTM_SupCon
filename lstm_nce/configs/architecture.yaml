@@ -1,5 +1,5 @@
 training:
-  lr: 0.00001
+  lr: 0.0001
   weight-decay: 0.0001
   bs: 16
   workers: 0
@@ -7,7 +7,7 @@ training:
   gamma: 0.5
   step-size: 25
   q_size: 1024
-  T: 0.2
+  T: 0.07
   M: 0.999
   lambda: 0.5
 
