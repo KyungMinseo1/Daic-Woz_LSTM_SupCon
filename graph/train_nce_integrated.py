@@ -188,23 +188,27 @@ def main():
 
   train_df = pd.read_csv(os.path.join(path_config.DATA_DIR, 'train_split_Depression_AVEC2017.csv'))
   val_df = pd.read_csv(os.path.join(path_config.DATA_DIR, 'dev_split_Depression_AVEC2017.csv'))
+  test_df = pd.read_csv(os.path.join(path_config.DATA_DIR, 'full_test_split.csv'))
   
   train_id = train_df.Participant_ID.tolist()
   val_id = val_df.Participant_ID.tolist()
   train_label = train_df.PHQ8_Binary.tolist()
   val_label = val_df.PHQ8_Binary.tolist()
 
+  test_id = test_df.Participant_ID.tolist()
+  test_label = test_df.PHQ_Binary.tolist()
+
   logger.info("Processing Train Data")
   train_graphs = make_graph(
-    train_id, 
-    train_label, 
+    train_id + val_id, 
+    train_label + val_label, 
     checkpoints_dir='checkpoints_nce', 
     checkpoints_dir_='multimodal_nce_4'
   )
   logger.info("Processing Validation Data")
   val_graphs = make_graph(
-    val_id, 
-    val_label, 
+    test_id, 
+    test_label, 
     checkpoints_dir='checkpoints_nce', 
     checkpoints_dir_='multimodal_nce_4'
   )
@@ -213,7 +217,7 @@ def main():
   train_counters = Counter(label.y.item() for label in train_graphs)
   logger.info(train_counters)
 
-  class_weights = train_counters[0] / train_counters[1] * 2.0
+  class_weights = train_counters[0] / train_counters[1] * 0.7
   logger.info(f"Weights: {class_weights}")
 
   logger.info("__VALIDATION_STATS__")
@@ -233,7 +237,7 @@ def main():
   logger.info(f"  - Input dim: {train_graphs[0].x.shape[1]}")
   logger.info(f"  - Hidden channels: {config['model']['h_dim']}")
   
-  optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'], weight_decay=config['training']['weight-decay'])
+  optimizer = torch.optim.AdamW(model.parameters(), lr=config['training']['lr'], weight_decay=config['training']['weight-decay'])
   if config['training']['scheduler'] == 'steplr':
     scheduler = lr_scheduler.StepLR(optimizer, step_size=config['training']['step-size'], gamma=config['training']['gamma'])
   else:
