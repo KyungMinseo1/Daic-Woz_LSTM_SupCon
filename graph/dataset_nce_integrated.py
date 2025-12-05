@@ -254,7 +254,7 @@ def make_graph(ids, labels, checkpoints_dir, checkpoints_dir_):
       
   except Exception as e:
     logger.error(f"Fatal Error: {e}")
-    return [], 0
+    return []
 
 if __name__=="__main__":
   train_df = pd.read_csv(os.path.join(path_config.DATA_DIR, 'train_split_Depression_AVEC2017.csv'))
