@@ -1,7 +1,15 @@
-import torch
+import torch, sys
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence
+from loguru import logger
+
+logger.remove()
+logger.add(
+  sys.stdout,
+  colorize=True,
+  format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+)
 
 def initialize_lstm_for_contrastive_learning(module: nn.Module):
   if isinstance(module, nn.LSTM):
@@ -67,7 +75,7 @@ class NCEMultimodalModel(nn.Module):
       param_k.data.copy_(param_q.data)
       param_k.requires_grad = False  # target encoder는 gradient X
 
-  def forward(self, x, x_len, x2, x2_len, x_queue, x2_queue):
+  def forward(self, x, x_len, x2, x2_len, x_queue, x2_queue, is_sample):
     """
     Args:
       x: (B, seq_len, input_dim) - x(transcription) sequences
@@ -76,17 +84,28 @@ class NCEMultimodalModel(nn.Module):
       x2_len: (B,) - x2(vision or audio) lengths
       x_queue: (C, K) - x queue features
       x2_queue: (C, K) - x2 queue features
+      is_sample: bool - checking data features
     """
     B = x.size(0) # Extract batch size
+    if is_sample:
+      logger.info(f"Batch size: {B}")
 
     q = F.normalize(self.encoder_x_q(x, x_len)[0], dim=1)  # (B, C) -> transcription LSTM feat
     q2 = F.normalize(self.encoder_x2_q(x2, x2_len)[0], dim=1)  # (B, C) -> vision or audio LSTM feat
+    if is_sample:
+      logger.info(f"query features: {q}")
+      logger.info(f"query2 features: {q2}")
 
     C = q.size(1)
+    if is_sample:
+      logger.info(f"queue size: {C}")
 
     with torch.no_grad():
       k = F.normalize(self.encoder_x_k(x, x_len)[0], dim=1)  # (B, C) -> transcription LSTM feat
       k2 = F.normalize(self.encoder_x2_k(x2, x2_len)[0], dim=1)  # (B, C) -> vision or audio LSTM feat
+    if is_sample:
+      logger.info(f"key features: {k}")
+      logger.info(f"key2 features: {k2}")
 
     # q: transcription, k: vision
     # Positive logits
@@ -97,6 +116,11 @@ class NCEMultimodalModel(nn.Module):
     logits1 = torch.cat([l1_pos, l1_neg], dim=1) # (B, 1+K)
     # contrastive loss
     labels1 = torch.zeros(B, device=logits1.device, dtype=torch.long)
+    if is_sample:
+      logger.info(f"traincription -> vision positive:\n{l1_pos}")
+      logger.info(f"traincription -> vision negative:\n{l1_neg}")
+      logger.info(f"traincription -> vision concat logits:\n{logits1}")
+      logger.info(f"traincription -> vision labels:\n{labels1}")
 
     # q: vision, k: transcription
     # Positive logits
@@ -107,6 +131,11 @@ class NCEMultimodalModel(nn.Module):
     logits2 = torch.cat([l2_pos, l2_neg], dim=1) # (B, 1+K)
     # contrastive loss
     labels2 = torch.zeros(B, device=logits2.device, dtype=torch.long)
+    if is_sample:
+      logger.info(f"vision -> transcription positive:\n{l2_pos}")
+      logger.info(f"vision -> transcription negative:\n{l2_neg}")
+      logger.info(f"vision -> transcription concat logits:\n{logits2}")
+      logger.info(f"vision -> transcription labels:\n{labels2}")
 
     return (logits1, labels1), (logits2, labels2), (k, k2), (q.std(dim=0).mean(), q2.std(dim=0).mean())
   

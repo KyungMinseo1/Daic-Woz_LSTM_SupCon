@@ -50,7 +50,7 @@ def process_vision(df):
   gz_h = gz_df.filter(like='h')
   ps_t = df.filter(like='ps').filter(like='T')
   ps_r = df.filter(like='ps').filter(like='R')
-  vision = pd.concat([timestamp, ft_x, ft_y, au_r, gz_h, ps_t, ps_r]) # pd.concat([timestamp, ft_x, ft_y, ft_3d_x, ft_3d_y, ft_3d_z, au_r, gz_h, ps_t, ps_r], axis=1)
+  vision = pd.concat([timestamp, ft_x, ft_y, au_r, gz_h, ps_t, ps_r], axis=1) # pd.concat([timestamp, ft_x, ft_y, ft_3d_x, ft_3d_y, ft_3d_z, au_r, gz_h, ps_t, ps_r], axis=1)
   return vision
 
 def vectorize_t_and_read_v(id, dataset, dataset2, glove_model, stop_words_list):

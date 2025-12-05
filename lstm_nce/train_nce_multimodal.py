@@ -82,7 +82,7 @@ class Queue(nn.Module):
 
     self.queue_ptr[0] = end # type: ignore
 
-def train(model, dataloader, x_queue, x2_queue, optimizer, device, config, criterion, lmbda, warmup=False, temperature=0.07):
+def train(model, dataloader, x_queue, x2_queue, optimizer, device, config, criterion, lmbda, warmup=False, temperature=0.07, is_sample=False):
   model.encoder_x_q.train()
   model.encoder_x2_q.train()
   model.encoder_x_k.eval()
@@ -110,7 +110,7 @@ def train(model, dataloader, x_queue, x2_queue, optimizer, device, config, crite
         x2_queue.dequeue_and_enqueue(k2)
       continue
 
-    result1, result2, k, q_std = model(x, x_len, x2, x2_len, x_queue.queue.clone().detach(), x2_queue.queue.clone().detach())
+    result1, result2, k, q_std = model(x, x_len, x2, x2_len, x_queue.queue.clone().detach(), x2_queue.queue.clone().detach(), is_sample)
     logger.info(f"Logits1 Max: {result1[0].max().item()}")
     loss1 = criterion(result1[0]/temperature, result1[1])
     loss2 = criterion(result2[0]/temperature, result2[1])
@@ -227,8 +227,14 @@ def main():
                       help="How many epochs wait before stopping for validation loss not improving.")
   parser.add_argument('--warmup_epochs', type=int, default=3,
                       help='Number of warm-up epochs to fill the queue before full training.')
+  parser.add_argument('--is_sample', type=bool, default=False,
+                      help='used for checking model outputs')
   
   opt = parser.parse_args()
+  if opt.is_sample:
+    opt.num_epochs = 2
+    opt.warmup_epochs = 0
+    logger.info("Sample -> Changed to epochs 2 & warmup 0")
   logger.info(opt)
 
   with open(os.path.join(config_path.ROOT_DIR, opt.config), 'r', encoding="utf-8") as ymlfile:
@@ -247,12 +253,18 @@ def main():
 
   train_transcription_dataset = []
   train_vision_dataset = []
+
+  if opt.is_sample:
+    logger.info("Sample Data: 300/301")
+    train_id = [300]
+    val_id = [301]
   
-  train_df = pd.read_csv(os.path.join(config_path.DATA_DIR, 'train_split_Depression_AVEC2017.csv'))
-  val_df = pd.read_csv(os.path.join(config_path.DATA_DIR, 'dev_split_Depression_AVEC2017.csv'))
-  
-  train_id = train_df.Participant_ID.tolist()
-  val_id = val_df.Participant_ID.tolist()
+  else:
+    train_df = pd.read_csv(os.path.join(config_path.DATA_DIR, 'train_split_Depression_AVEC2017.csv'))
+    val_df = pd.read_csv(os.path.join(config_path.DATA_DIR, 'dev_split_Depression_AVEC2017.csv'))
+    
+    train_id = train_df.Participant_ID.tolist()
+    val_id = val_df.Participant_ID.tolist()
 
   logger.info("Loading GLOVE")
   glove_kv_path = os.path.join(config_path.MODEL_DIR, "glove_model.kv")
@@ -287,7 +299,10 @@ def main():
   torch.cuda.empty_cache()
 
   logger.info("DataLoader Ready")
-  train_loader = DataLoader(train_data, batch_size=config['training']['bs'], num_workers=config['training']['workers'], shuffle=True, pin_memory=True, collate_fn=collate_batch)
+  if opt.is_sample:
+    train_loader = DataLoader(train_data, batch_size=1, num_workers=0, shuffle=False, collate_fn=collate_batch)
+  else:
+    train_loader = DataLoader(train_data, batch_size=config['training']['bs'], num_workers=config['training']['workers'], shuffle=True, pin_memory=True, collate_fn=collate_batch)
 
   # train setting
   hidden_dim = config['model']['h_dim']
@@ -296,8 +311,12 @@ def main():
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
   model = NCEMultimodalModel(x_input_dim, x2_input_dim, hidden_dim, output_dim, num_layers=config['model']['depth'], dropout=config['model']['dropout'])
-  queue_x = Queue(output_dim=output_dim, queue_size=config['training']['q_size'])
-  queue_x2 = Queue(output_dim=output_dim, queue_size=config['training']['q_size'])
+  if opt.is_sample:
+    queue_x = Queue(output_dim=output_dim, queue_size=2)
+    queue_x2 = Queue(output_dim=output_dim, queue_size=2)
+  else:
+    queue_x = Queue(output_dim=output_dim, queue_size=config['training']['q_size'])
+    queue_x2 = Queue(output_dim=output_dim, queue_size=config['training']['q_size'])
   criterion = CrossEntropyLoss()
   optimizer = torch.optim.SGD(list(model.encoder_x_q.parameters()) + list(model.encoder_x2_q.parameters()), lr=config['training']['lr'])
   if config['training']['scheduler'] == 'steplr':
@@ -344,7 +363,10 @@ def main():
     warmup = epoch <= opt.warmup_epochs
     if warmup:
       logger.info(f"\n[Warm-up Epoch {epoch}/{opt.warmup_epochs}] Filling queue only...")
-    train_avg_loss = train(model=model, dataloader=train_loader, x_queue=queue_x, x2_queue=queue_x2, optimizer=optimizer, device=device, config=config, criterion=criterion, lmbda=config['training']['lambda'], warmup=warmup, temperature=config['training']['T'])
+    if opt.is_sample:
+      train_avg_loss = train(model=model, dataloader=train_loader, x_queue=queue_x, x2_queue=queue_x2, optimizer=optimizer, device=device, config=config, criterion=criterion, lmbda=config['training']['lambda'], warmup=warmup, temperature=config['training']['T'], is_sample=True)
+    else:
+      train_avg_loss = train(model=model, dataloader=train_loader, x_queue=queue_x, x2_queue=queue_x2, optimizer=optimizer, device=device, config=config, criterion=criterion, lmbda=config['training']['lambda'], warmup=warmup, temperature=config['training']['T'])
     if warmup:
       continue
     # val_accuracy = validation_knn(model=model, train_loader=train_loader, val_loader=val_loader, device=device, lmbda=config['training']['lambda'], temperature=config['training']['T'])
