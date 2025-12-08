@@ -19,12 +19,11 @@ import nltk
 from nltk.corpus import stopwords
 
 from lstm_nce_multimodal import NCEMultimodalModel
-from prepare_dataset_vision_nce_multimodal import vectorize_t_and_read_v
-from nce_dataset_multimodal import LSTM_NCE_Multimodal_DATASET
+from prepare_dataset_vision_nce_multimodal_memory_eff import prepare_metadata
+from nce_dataset_multimodal_memory_eff import LSTM_NCE_Multimodal_DATASET
 
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning) 
@@ -167,67 +166,14 @@ def train(model, dataloader, x_queue, x2_queue, optimizer, device, config, crite
       'avg loss': f'{avg_loss:.4f}',
       'grad norm': f'{total_norm**0.5:.4f}',
       'x std': f'{avg_x_std:.4f}',
-      'x2 std': f'{avg_x2_std:.4f}'
+      'x2 std': f'{avg_x2_std:.4f}',
+      'batch': f'{batch_idx+1}/{num_batches}'
     })
 
   if warmup:
     return 0.0, 0.0, 0.0
   else:
     return avg_loss, avg_x_std, avg_x2_std
-  
-def validation_retrieval(model, val_loader, device):
-  model.eval()
-  
-  x_feats = []
-  x2_feats = []
-  
-  # 1. Feature 추출 (여기서 CPU로 내리는 것이 핵심!)
-  with torch.no_grad():
-    for x, x_len, x2, x2_len in tqdm(val_loader, desc='Val Embedding'):
-      x, x_len = x.to(device), x_len.to(device)
-      x2, x2_len = x2.to(device), x2_len.to(device)
-      
-      # Encoder Q 사용
-      feat_x, _ = model.encoder_x_q(x, x_len)
-      feat_x2, _ = model.encoder_x2_q(x2, x2_len)
-      
-      # [중요] .cpu()를 붙여서 GPU 메모리 해제
-      x_feats.append(F.normalize(feat_x, dim=1).cpu())
-      x2_feats.append(F.normalize(feat_x2, dim=1).cpu())
-  
-  # 2. 리스트 합치기 (이제 CPU 메모리를 사용함)
-  x_feats = torch.cat(x_feats, dim=0)   # [N, Dim] on CPU
-  x2_feats = torch.cat(x2_feats, dim=0) # [N, Dim] on CPU
-  
-  # 3. Similarity Matrix 계산
-  # 데이터가 아주 많지 않다면 CPU에서 계산해도 충분히 빠릅니다.
-  # (GPU OOM 방지를 위해 CPU 연산 추천)
-  sim_matrix = torch.matmul(x_feats, x2_feats.T) 
-  
-  # 4. Recall 계산
-  top1_acc = 0
-  top5_acc = 0
-  n_samples = x_feats.shape[0]
-  
-  # topk 계산도 CPU에서 진행
-  _, indices = torch.topk(sim_matrix, k=5, dim=1) 
-  
-  for i in range(n_samples):
-    if i in indices[i, :1]: # Top 1
-      top1_acc += 1
-    if i in indices[i, :5]: # Top 5
-      top5_acc += 1
-        
-  r1 = top1_acc / n_samples
-  r5 = top5_acc / n_samples
-  
-  logger.info(f"Validation R@1: {r1:.4f}, R@5: {r5:.4f}")
-
-  # 메모리 정리 (혹시 모를 잔여물 제거)
-  del x_feats, x2_feats, sim_matrix
-  torch.cuda.empty_cache()
-
-  return r1, r5
 """
 def validation_knn(model, train_loader, val_loader, device, criterion, lmbda, k=5, batch_size=256):
   model.encoder_k.eval()
@@ -293,17 +239,14 @@ def main():
                       help="Directory path to save model")
   parser.add_argument('--save_dir_', type=str, default='checkpoints1', metavar='PATH',
                       help="Exact directory path to save model")
-  parser.add_argument('--save_freq', type=int, default=5,
-                      help='Frequency of saving checkpoints')
   parser.add_argument('--patience', type=int, default=10, 
                       help="How many epochs wait before stopping for validation loss not improving.")
   parser.add_argument('--warmup_epochs', type=int, default=3,
                       help='Number of warm-up epochs to fill the queue before full training.')
   parser.add_argument('--is_sample', type=bool, default=False,
-                      help='used for checking model outputs')
-  parser.add_argument('--lr_half', type=bool, default=False,
-                      help='used for accurate tuning when resumed')
-
+                      help='Used for checking model outputs')
+  parser.add_argument('--cache_limit', type=int, default=20,
+                      help='How many dataframes to cache')
   
   opt = parser.parse_args()
   if opt.is_sample:
@@ -323,17 +266,10 @@ def main():
     'epoch':[],
     'train_loss':[],
     'train_x_std':[],
-    'train_x2_std':[],
-    'val_r1':[],
-    'val_r5':[]
+    'train_x2_std':[]
     # 'train_correct':[],
     # 'val_accuracy':[]
   }
-
-  train_transcription_dataset = []
-  train_vision_dataset = []
-  val_transcription_dataset = []
-  val_vision_dataset = []
 
   if opt.is_sample:
     logger.info("Sample Data: 300/301")
@@ -364,22 +300,22 @@ def main():
   stop_words_list = stopwords.words('english')
   logger.info("Loaded Stopwords")
 
-  # for id in tqdm(train_id+val_id, desc="Preparing Data -> "):
-  for id in tqdm(train_id, desc="Preparing Train Data -> "):
-    vectorize_t_and_read_v(id, train_transcription_dataset, train_vision_dataset, glove_model, stop_words_list)
-  for id in tqdm(val_id, desc="Preparing Validation Data -> "):
-    vectorize_t_and_read_v(id, val_transcription_dataset, val_vision_dataset, glove_model, stop_words_list)
+  logger.info("Preparing Train Metadata indices...")
+  train_meta = prepare_metadata(train_id+val_id, stop_words_list, glove_model)
     
+  logger.info(f"Train Samples: {len(train_meta)}")
+
   logger.info("Dataset Ready")
+
+  train_data = LSTM_NCE_Multimodal_DATASET(train_meta, glove_model, stop_words_list, cache_limit=opt.cache_limit)
+  sample_x, sample_x2 = train_data[0]
+  x_input_dim = sample_x.shape[1]
+  x2_input_dim = sample_x2.shape[1]
   # train_vision_dataset: (id*B, seq_len, v_columns)
-  x_input_dim = len(train_transcription_dataset[0][0])
-  x2_input_dim = len(train_vision_dataset[0][0])
   logger.info(f"Current Transcription Dimenseion: {x_input_dim}")
   logger.info(f"Current Multimodal Dimenseion: {x2_input_dim}")
 
-  train_data = LSTM_NCE_Multimodal_DATASET(train_transcription_dataset, train_vision_dataset)
-  val_data = LSTM_NCE_Multimodal_DATASET(val_transcription_dataset, val_vision_dataset)
-  del train_transcription_dataset, train_vision_dataset, val_transcription_dataset, val_vision_dataset, glove_model, stop_words_list
+  del train_meta, glove_model, stop_words_list
   gc.collect()
   torch.cuda.empty_cache()
 
@@ -387,9 +323,7 @@ def main():
   if opt.is_sample:
     train_loader = DataLoader(train_data, batch_size=1, num_workers=0, shuffle=False, collate_fn=collate_batch)
   else:
-    train_loader = DataLoader(train_data, batch_size=config['training']['bs'], num_workers=config['training']['workers'], shuffle=True, collate_fn=collate_batch)
-    val_batch_size = max(1, config['training']['bs'] // 4)
-    val_loader = DataLoader(val_data, batch_size=val_batch_size, num_workers=config['training']['workers'], shuffle=False, collate_fn=collate_batch)
+    train_loader = DataLoader(train_data, batch_size=config['training']['bs'], num_workers=config['training']['workers'], shuffle=True, pin_memory=True, collate_fn=collate_batch)
 
   # train setting
   hidden_dim = config['model']['h_dim']
@@ -405,17 +339,14 @@ def main():
     queue_x = Queue(output_dim=output_dim, queue_size=config['training']['q_size'])
     queue_x2 = Queue(output_dim=output_dim, queue_size=config['training']['q_size'])
   criterion = CrossEntropyLoss()
-  lr = float(config['training']['lr'])
-  if opt.lr_half:
-    lr /= 2
   optimizer = torch.optim.AdamW(
     list(model.encoder_x_q.parameters()) + list(model.encoder_x2_q.parameters()),
-    lr=lr,
+    lr=float(config['training']['lr']),
     weight_decay=float(config['training']['weight-decay'])
     )
   if config['training']['scheduler'] == 'steplr':
     scheduler = lr_scheduler.StepLR(optimizer, step_size=config['training']['step-size'], gamma=config['training']['gamma'])
-  elif config['training']['scheduler'] == 'cosinelr':
+  else:
     scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=opt.num_epochs)
 
   model.to(device)
@@ -445,7 +376,7 @@ def main():
     del checkpoint
     gc.collect()
     logger.info(f"Resuming from epoch {starting_epoch}")
-    # logger.info(f"Previous best val_loss: {min(history['val_loss']) if history['val_loss'] else 'N/A'}")
+    logger.info(f"Previous best val_loss: {min(history['val_loss']) if history['val_loss'] else 'N/A'}")
   else:
     logger.info("No checkpoint loaded. Starting from scratch.")
 
@@ -453,82 +384,50 @@ def main():
 
   patience = 0
 
-  for epoch in range(starting_epoch, starting_epoch + opt.num_epochs + 1 + opt.warmup_epochs):
-    warmup = epoch < starting_epoch + opt.warmup_epochs
+  for epoch in range(starting_epoch, opt.num_epochs + 1 + opt.warmup_epochs):
+    warmup = epoch <= opt.warmup_epochs
     if warmup:
       logger.info(f"\n[Warm-up Epoch {epoch}/{opt.warmup_epochs}] Filling queue only...")
-      if opt.is_sample:
-        _, _, _ =\
-          train(model=model,
-                dataloader=train_loader,
-                x_queue=queue_x,
-                x2_queue=queue_x2,
-                optimizer=optimizer,
-                device=device,
-                config=config,
-                criterion=criterion,
-                lmbda=config['training']['lambda'],
-                warmup=warmup,
-                temperature=config['training']['T'],
-                is_sample=True)
-      else:
-        train_avg_loss, train_avg_x_std, train_avg_x2_std =\
-          train(model=model,
-                dataloader=train_loader,
-                x_queue=queue_x,
-                x2_queue=queue_x2,
-                optimizer=optimizer,
-                device=device,
-                config=config,
-                criterion=criterion,
-                lmbda=config['training']['lambda'],
-                warmup=warmup,
-                temperature=config['training']['T'])
+    if opt.is_sample:
+      _, _, _ =\
+        train(model=model,
+              dataloader=train_loader,
+              x_queue=queue_x,
+              x2_queue=queue_x2,
+              optimizer=optimizer,
+              device=device,
+              config=config,
+              criterion=criterion,
+              lmbda=config['training']['lambda'],
+              warmup=warmup,
+              temperature=config['training']['T'],
+              is_sample=True)
     else:
-      if opt.is_sample:
-        pass
-      else:
-        train_avg_loss, train_avg_x_std, train_avg_x2_std =\
-          train(model=model,
-                dataloader=train_loader,
-                x_queue=queue_x,
-                x2_queue=queue_x2,
-                optimizer=optimizer,
-                device=device,
-                config=config,
-                criterion=criterion,
-                lmbda=config['training']['lambda'],
-                warmup=False,
-                temperature=config['training']['T'])
-        # scheduler.step()
+      train_avg_loss, train_avg_x_std, train_avg_x2_std =\
+        train(model=model,
+              dataloader=train_loader,
+              x_queue=queue_x,
+              x2_queue=queue_x2,
+              optimizer=optimizer,
+              device=device,
+              config=config,
+              criterion=criterion,
+              lmbda=config['training']['lambda'],
+              warmup=warmup,
+              temperature=config['training']['T'])  
     if warmup:
       continue
-
-    # Validation 시작 전 GPU 캐시 비우기
-    torch.cuda.empty_cache()
-
     # val_accuracy = validation_knn(model=model, train_loader=train_loader, val_loader=val_loader, device=device, lmbda=config['training']['lambda'], temperature=config['training']['T'])
-    val_r1, val_r5 = validation_retrieval(model=model, val_loader=val_loader, device=device)
-
-    current_lr = optimizer.param_groups[0]['lr']
-
-    if "val_r1" not in history:
-      history['val_r1'] = [0 for _ in range(len(history['train_loss']))]
-    if "val_r5" not in history:
-      history['val_r5'] = [0 for _ in range(len(history['train_loss']))]
 
     history['epoch'].append(epoch)
     history['train_loss'].append(train_avg_loss)
     history['train_x_std'].append(train_avg_x_std)
     history['train_x2_std'].append(train_avg_x2_std)
-    history['val_r1'].append(val_r1)
-    history['val_r5'].append(val_r5)
     # history['train_correct'].append(total_correct_rate)
     # history['val_accuracy'].append(val_accuracy)
 
     logger.info("#" + str(epoch) + "/" + str(opt.num_epochs) + " loss:" +
-                str(train_avg_loss) + " val_r1:" + str(val_r1) + " current_lr:" + str(current_lr))
-    # + " accuracy:" + str(val_accuracy)
+                str(train_avg_loss)) # + " accuracy:" + str(val_accuracy)
     
     checkpoint = {
         'epoch': epoch-opt.warmup_epochs,
@@ -541,11 +440,11 @@ def main():
         'history': history
     }
 
-    if epoch % opt.save_freq == 0:
+    if epoch % 5 == 0:
       checkpoint_path = os.path.join(CHECKPOINTS_DIR, f"checkpoint_epoch{epoch}.pth")
       torch.save(checkpoint, checkpoint_path)
       logger.info(f"Checkpoint saved: {checkpoint_path}")
-    """
+
     if len(history['train_loss']) > 0 and train_avg_loss <= min(history['train_loss']):
       best_path = os.path.join(CHECKPOINTS_DIR, f"best_model.pth")
       torch.save(checkpoint, best_path)
@@ -554,15 +453,7 @@ def main():
     else:
       patience += 1
       logger.info(f"Current Patience: {patience}")
-    """
-    if len(history['val_r5']) > 0 and val_r5 >= max(history['val_r5']):
-      best_path = os.path.join(CHECKPOINTS_DIR, f"best_model.pth")
-      torch.save(checkpoint, best_path)
-      logger.info(f"Best model saved (New Record R@5: {val_r5:.4f}): {best_path}")
-      patience = 0
-    else:
-      patience += 1
-      logger.info(f"Current Patience: {patience}")
+    
     if patience >= opt.patience:
       logger.info(f"# {epoch}/{opt.num_epochs} => Early Stopping")
       break
@@ -577,39 +468,31 @@ def main():
 
   epochs_range = range(starting_epoch, starting_epoch + len(history['train_loss']))
 
-  fig, axes = plt.subplots(2, 2, figsize=(18, 5))
+  fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
-  # 1. Loss 그래프 (첫 번째 칸: axes[0,0])
-  axes[0,0].plot(epochs_range, history['train_loss'], 'b-', label='Train Loss')
-  axes[0,0].set_xlabel('Epoch')
-  axes[0,0].set_ylabel('Loss')
-  axes[0,0].set_title('Training Loss')
-  axes[0,0].legend()
-  axes[0,0].grid(True)
+  # 1. Loss 그래프 (첫 번째 칸: axes[0])
+  axes[0].plot(epochs_range, history['train_loss'], 'b-', label='Train Loss')
+  axes[0].set_xlabel('Epoch')
+  axes[0].set_ylabel('Loss')
+  axes[0].set_title('Training Loss')
+  axes[0].legend()
+  axes[0].grid(True)
 
-  # 2. Val_r1 그래프 (첫 번째 칸: axes[0,1])
-  axes[0,1].plot(epochs_range, history['val_r1'], 'b-', label='Recall@1')
-  axes[0,1].set_xlabel('Epoch')
-  axes[0,1].set_ylabel('R@1')
-  axes[0,1].set_title('Validation Recall@1')
-  axes[0,1].legend()
-  axes[0,1].grid(True)
+  # 2. X_std 그래프 (두 번째 칸: axes[1])
+  axes[1].plot(epochs_range, history['train_x_std'], 'g-', label='Train X Std') # 색상 구분(green)
+  axes[1].set_xlabel('Epoch')
+  axes[1].set_ylabel('Std')
+  axes[1].set_title('Training X Std')
+  axes[1].legend()
+  axes[1].grid(True)
 
-  # 3. X_std 그래프 (두 번째 칸: axes[1,0])
-  axes[1,0].plot(epochs_range, history['train_x_std'], 'g-', label='Train X Std') # 색상 구분(green)
-  axes[1,0].set_xlabel('Epoch')
-  axes[1,0].set_ylabel('Std')
-  axes[1,0].set_title('Training X Std')
-  axes[1,0].legend()
-  axes[1,0].grid(True)
-
-  # 4. X2_std 그래프 (세 번째 칸: axes[1,1])
-  axes[1,1].plot(epochs_range, history['train_x2_std'], 'r-', label='Train X2 Std') # 색상 구분(red)
-  axes[1,1].set_xlabel('Epoch')
-  axes[1,1].set_ylabel('Std')
-  axes[1,1].set_title('Training X2 Std')
-  axes[1,1].legend()
-  axes[1,1].grid(True)
+  # 3. X2_std 그래프 (세 번째 칸: axes[2])
+  axes[2].plot(epochs_range, history['train_x2_std'], 'r-', label='Train X2 Std') # 색상 구분(red)
+  axes[2].set_xlabel('Epoch')
+  axes[2].set_ylabel('Std')
+  axes[2].set_title('Training X2 Std')
+  axes[2].legend()
+  axes[2].grid(True)
 
   plt.tight_layout()
   
@@ -635,7 +518,7 @@ if __name__=="__main__":
   main()
 
 # first
-#   ex) python lstm_nce/train_nce_multimodal.py --warmup_epochs 1 --num_epochs 1000 --patience 20 --save_freq 15 
-#     -> epochs: 1000, config_file: lstm_nce/configs/architecture.yaml, save_path: checkpoints/checkpoints1, patience: 20, warmup_for_queue: 1, checkpoints_saving_frequency: 15
+#   ex) python lstm_nce/train_nce_multimodal_memory_eff.py --save_dir checkpoints_nce --save_dir_ multimodal_nce_1 --warmup_epochs 1
+#     -> epochs: 100, config_file: lstm_nce/configs/architecture.yaml, save_path: checkpoints/checkpoints1, patience: 10, warmup_for_queue: 3
 # resume
 #   ex) python lstm_nce/train_nce.py --resume checkpoints/checkpoints1/best_model.pth

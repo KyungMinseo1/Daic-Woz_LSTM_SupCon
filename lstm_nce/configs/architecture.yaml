@@ -1,13 +1,13 @@
 training:
-  lr: 0.001
-  weight-decay: 0.0001
+  lr: 1e-4
+  weight-decay: 1e-5
   bs: 128
   workers: 0
   scheduler: 'steplr'
   gamma: 0.5
-  step-size: 25
-  q_size: 4096
-  T: 0.2
+  step-size: 250
+  q_size: 2048
+  T: 0.07
   M: 0.995
   lambda: 0.5
 
@@ -15,4 +15,4 @@ model:
   h_dim: 128
   o_dim: 128
   depth: 2
-  dropout: 0.1
+  dropout: 0.3
