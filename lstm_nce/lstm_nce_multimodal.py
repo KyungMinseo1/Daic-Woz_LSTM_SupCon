@@ -39,6 +39,7 @@ class SimpleBiLSTM(nn.Module):
       x: (batch, seq_len, input_dim) - already feature vectors
       lengths: (batch,) - sequence lengths
     """
+    self.bilstm.flatten_parameters()
     packed = pack_padded_sequence(x, lengths.cpu(), batch_first=True, enforce_sorted=False)
     packed_out, (h_n, c_n) = self.bilstm(packed)
 
