@@ -10,10 +10,12 @@ training:
 model:
   h_dim: 256
   head: 8
-  num_layers: 3
+  num_layers: 2
   t_dropout: 0.3
   g_dropout: 0.3
   v_dropout: 0.3
   a_dropout: 0.3
   use_attention: True
-  use_summary_node: False
+  use_summary_node: True
+  v_a_connect: False
+  use_text_proj: False
