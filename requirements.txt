@@ -4,6 +4,8 @@ loguru
 matplotlib
 scikit-learn
 
+optuna
+
 torch==2.8.0+cu128 --index-url https://download.pytorch.org/whl/cu128
 
 pyg_lib -f https://data.pyg.org/whl/torch-2.8.0+cu128.html
