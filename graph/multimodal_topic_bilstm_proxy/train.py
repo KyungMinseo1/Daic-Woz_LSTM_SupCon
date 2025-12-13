@@ -8,7 +8,7 @@ from torch.optim import lr_scheduler
 from torch_geometric.loader import DataLoader
 from collections import Counter
 
-from .GAT import GATClassifier
+from .._multimodal_model_bilstm.GAT import GATClassifier
 from .dataset import make_graph
 
 import warnings

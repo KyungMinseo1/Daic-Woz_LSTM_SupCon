@@ -8,7 +8,7 @@ from tqdm import tqdm
 from loguru import logger
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from .GAT import GATClassifier
+from .._multimodal_model_bilstm.GAT import GATClassifier
 import matplotlib.pyplot as plt
 from torch_geometric.utils import to_networkx
 import matplotlib.patches as mpatches

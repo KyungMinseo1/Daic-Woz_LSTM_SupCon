@@ -8,7 +8,7 @@ from torch.optim import lr_scheduler
 from torch_geometric.loader import DataLoader
 from collections import Counter
 
-from .GAT import GATClassifier
+from .._unimodal_model.GAT import GATClassifier
 from .dataset import make_graph
 
 import warnings
@@ -77,7 +77,7 @@ def main():
   test_label = test_df.PHQ_Binary.tolist()
 
   logger.info("Processing Train Data")
-  train_graphs, v_dim, a_dim = make_graph(
+  train_graphs, t_dim = make_graph(
     ids = train_id+val_id,
     labels = train_label+val_label,
     model_name = config['training']['embed_model'],
@@ -85,7 +85,7 @@ def main():
     use_summary_node = config['model']['use_summary_node']
   )
   logger.info("Processing Validation Data")
-  val_graphs, _, _ = make_graph(
+  val_graphs, _ = make_graph(
     ids = test_id,
     labels = test_label,
     model_name = config['training']['embed_model'],
@@ -114,9 +114,7 @@ def main():
   logger.info("Setting Training Environment")
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   model = GATClassifier(
-      text_dim=train_graphs[0].x.shape[1],
-      vision_dim=v_dim,
-      audio_dim=a_dim,
+      text_dim=t_dim,
       hidden_channels=config['model']['h_dim'],
       num_layers=config['model']['num_layers'],
       num_classes=2,
@@ -125,9 +123,7 @@ def main():
       use_summary_node=config['model']['use_summary_node']
   ).to(device)
   logger.info(f"Model initialized with:")
-  logger.info(f"  - Text dim: {train_graphs[0].x.shape[1]}")
-  logger.info(f"  - Vision dim: {v_dim}")
-  logger.info(f"  - Audio dim: {a_dim}")
+  logger.info(f"  - Text dim: {t_dim}")
   logger.info(f"  - Hidden channels: {config['model']['h_dim']}")
   
   optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'], weight_decay=config['training']['weight-decay'])
