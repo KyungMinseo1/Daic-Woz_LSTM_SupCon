@@ -62,7 +62,7 @@ def pad_sequence_numpy(seq, max_len):
     padding = np.zeros((max_len - seq_len, feature_dim))
     return np.vstack([seq, padding])
 
-def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, v_a_connect=False, visualization=False):
+def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, t_t_connect=False, v_a_connect=False, visualization=False):
   try:
     finish_utterance = ["asked everything", "asked_everything", "it was great chatting with you"]
 
@@ -221,10 +221,10 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
 
           # Text -> Topic
           source_nodes.append(t_node_id)
-          target_nodes.append(topic_node_id)
+          target_nodes.append(start_offset + topic_node_id)
 
           # Text -> Text
-          if global_prev_t_node_id is not None:
+          if global_prev_t_node_id is not None and t_t_connect:
             source_nodes.append(global_prev_t_node_id)
             target_nodes.append(t_node_id)
             source_nodes.append(t_node_id)
@@ -337,11 +337,11 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
       v_dim = 0
       a_dim = 0
 
-    return graphs, text_dim, v_dim, a_dim
+    return graphs, (text_dim, v_dim, a_dim)
   
   except Exception as e:
     logger.error(e)
-    return [], 0, 0, 0
+    return [], (0, 0, 0)
 
 if __name__=="__main__":
   # train_df = pd.read_csv(os.path.join(path_config.DATA_DIR, 'train_split_Depression_AVEC2017.csv'))
