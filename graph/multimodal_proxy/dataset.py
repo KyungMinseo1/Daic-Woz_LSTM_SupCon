@@ -49,7 +49,8 @@ def process_vision(df):
   vision = pd.concat([timestamp, features], axis=1)
   return vision
 
-def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, v_a_connect=False, visualization=False):
+# Topic Deleted -> Text to Text connection is activated
+def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, t_t_connect=True, v_a_connect=False, visualization=False):
   try:
     finish_utterance = ["asked everything", "asked_everything", "it was great chatting with you"]
 
@@ -186,7 +187,7 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
           target_nodes.append(0)
 
           # Text -> Text
-          if global_prev_t_node_id is not None:
+          if global_prev_t_node_id is not None and t_t_connect:
             source_nodes.append(global_prev_t_node_id)
             target_nodes.append(t_node_id)
             source_nodes.append(t_node_id)
@@ -286,11 +287,11 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
       v_dim = 0
       a_dim = 0
 
-    return graphs, text_dim, v_dim, a_dim
+    return graphs, (text_dim, v_dim, a_dim)
   
   except Exception as e:
     logger.error(e)
-    return [], 0, 0, 0
+    return [], (0, 0, 0)
 
 if __name__=="__main__":
   # train_df = pd.read_csv(os.path.join(path_config.DATA_DIR, 'train_split_Depression_AVEC2017.csv'))
@@ -310,7 +311,7 @@ if __name__=="__main__":
   logger.info(f"Labels distribution: {pd.Series(train_label).value_counts().to_dict()}")
   logger.info("-" * 50)
 
-  train_graphs, t_dim, v_dim, a_dim = make_graph(
+  train_graphs, (t_dim, v_dim, a_dim) = make_graph(
     ids = train_id,
     labels = train_label,
     model_name='sentence-transformers/all-MiniLM-L6-v2',
