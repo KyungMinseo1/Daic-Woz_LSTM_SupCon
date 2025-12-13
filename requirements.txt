@@ -5,6 +5,7 @@ matplotlib
 scikit-learn
 
 optuna
+plotly
 
 torch==2.8.0+cu128 --index-url https://download.pytorch.org/whl/cu128
 
