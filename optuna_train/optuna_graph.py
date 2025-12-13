@@ -13,12 +13,9 @@ import torch
 from torch.optim import lr_scheduler
 from torch_geometric.loader import DataLoader
 
-from graph.multimodal_bilstm.GAT import GATClassifier as BiLSTMGAT
-from graph.multimodal_proxy.GAT import GATClassifier as ProxyGAT
-from graph.multimodal_topic_bilstm.GAT import GATClassifier as TopicBiLSTMGAT
-from graph.multimodal_topic_bilstm_proxy.GAT import GATClassifier as TopicProxyBiLSTMGAT
-from graph.multimodal_topic_proxy.GAT import GATClassifier as TopicProxyGAT
-from graph.unimodal_topic.GAT import GATClassifier as UniTopicGAT
+from graph._multimodal_model_bilstm.GAT import GATClassifier as BiLSTMGAT, GATJKClassifier as BiLSTMV2GAT
+from graph._multimodal_model_no_bilstm.GAT import GATClassifier as NoBiLSTMGAT, GATJKClassifier as NoBiLSTMV2GAT
+from graph._unimodal_model.GAT import GATClassifier as UniGAT, GATJKClassifier as UniV2GAT
 
 from graph.multimodal_bilstm.dataset import make_graph as BiLSTM_make_graph
 from graph.multimodal_proxy.dataset import make_graph as Proxy_make_graph
@@ -38,11 +35,20 @@ logger.add(
 
 MODEL = {
   'multimodal_bilstm':BiLSTMGAT,
-  'multimodal_proxy':ProxyGAT,
-  'multimodal_topic_bilstm':TopicBiLSTMGAT,
-  'multimodal_topic_bilstm_proxy':TopicProxyBiLSTMGAT,
-  'multimodal_topic_proxy':TopicProxyGAT,
-  'unimodal_topic':UniTopicGAT
+  'multimodal_proxy':NoBiLSTMGAT,
+  'multimodal_topic_bilstm':BiLSTMGAT,
+  'multimodal_topic_bilstm_proxy':BiLSTMGAT,
+  'multimodal_topic_proxy':NoBiLSTMGAT,
+  'unimodal_topic':UniGAT
+}
+
+V2_MODEL = {
+  'multimodal_bilstm':BiLSTMV2GAT,
+  'multimodal_proxy':NoBiLSTMV2GAT,
+  'multimodal_topic_bilstm':BiLSTMV2GAT,
+  'multimodal_topic_bilstm_proxy':BiLSTMV2GAT,
+  'multimodal_topic_proxy':NoBiLSTMV2GAT,
+  'unimodal_topic':UniV2GAT
 }
 
 MAKE_GRAPH = {
@@ -55,7 +61,7 @@ MAKE_GRAPH = {
 }
 
 def bilstm_objective(
-    trial, config, mode,
+    trial, config, mode, version,
     train_loader, val_loader, criterion,
     text_dim, vision_dim, audio_dim,
     epochs, device, checkpoints_dir, patience
@@ -95,7 +101,12 @@ def bilstm_objective(
     'audio_dropout':a_dropout
   }
 
-  model = MODEL[mode](
+  if int(version) == 1:
+    model_dict = MODEL
+  elif int(version) == 2:
+    model_dict = V2_MODEL
+
+  model = model_dict[mode](
     text_dim=text_dim,
     vision_dim=vision_dim,
     audio_dim=audio_dim,
@@ -202,7 +213,7 @@ def bilstm_objective(
   return float(best_val_f1)
 
 def objective(
-    trial, config, mode,
+    trial, config, mode, version,
     train_loader, val_loader, criterion,
     text_dim, vision_dim, audio_dim,
     epochs, device, checkpoints_dir, patience
@@ -241,8 +252,13 @@ def objective(
     'audio_dropout':a_dropout
   }
 
+  if int(version) == 1:
+    model_dict = MODEL
+  elif int(version) == 2:
+    model_dict = V2_MODEL
+
   if 'unimodal' in mode:
-    model = MODEL[mode](
+    model = model_dict[mode](
       text_dim=text_dim,
       hidden_channels=256 if use_text_proj else text_dim,
       num_layers=num_layers,
@@ -253,7 +269,7 @@ def objective(
       use_text_proj=use_text_proj
     ).to(device)
   else:
-    model = MODEL[mode](
+    model = model_dict[mode](
       text_dim=text_dim,
       vision_dim=vision_dim,
       audio_dim=audio_dim,
@@ -391,7 +407,9 @@ def main():
                       help="Model for optuna ['multimodal_bilstm', 'multimodal_proxy', 'multimodal_topic_bilstm', 'multimodal_topic_bilstm_proxy', 'multimodal_topic_proxy']")
   parser.add_argument('--tt_connect', type=bool, default=False,
                       help="Text to text connection.")
-  
+  parser.add_argument('--version', type=int, default=1,
+                      help="GATClassifier version.")
+    
   opt = parser.parse_args()
   logger.info(opt)
 
@@ -507,7 +525,7 @@ def main():
     if 'bilstm' in opt.mode:
       study.optimize(
           lambda trial: bilstm_objective(
-            trial=trial, config=config, mode=opt.mode,
+            trial=trial, config=config, mode=opt.mode, version=opt.version,
             train_loader=train_loader, val_loader=val_loader, criterion=criterion,
             text_dim=t_dim, vision_dim=v_dim, audio_dim=a_dim,
             epochs=opt.num_epochs, device=device, checkpoints_dir=CHECKPOINTS_DIR, patience=opt.patience
@@ -517,7 +535,7 @@ def main():
     else:
       study.optimize(
           lambda trial: objective(
-            trial=trial, config=config, mode=opt.mode,
+            trial=trial, config=config, mode=opt.mode, version=opt.version,
             train_loader=train_loader, val_loader=val_loader, criterion=criterion,
             text_dim=t_dim, vision_dim=v_dim, audio_dim=a_dim,
             epochs=opt.num_epochs, device=device, checkpoints_dir=CHECKPOINTS_DIR, patience=opt.patience
