@@ -140,6 +140,7 @@ class GATClassifier(nn.Module):
             audio_dim,
             hidden_channels,
             num_layers,
+            bilstm_num_layers,
             num_classes,
             dropout_dict,
             heads=8,
@@ -153,6 +154,7 @@ class GATClassifier(nn.Module):
             audio_dim: audio 피처 원본 차원
             hidden_channels: GAT hidden 차원
             num_layers: GAT 레이어 수
+            bilstm_num_layers: BiLSTM 레이어 수
             num_classes: 분류 클래스 수
             heads: attention head 수
             dropout: dropout 비율
@@ -185,7 +187,7 @@ class GATClassifier(nn.Module):
                 input_dim=vision_dim, 
                 hidden_dim=hidden_channels,
                 output_dim=hidden_channels,
-                num_layers=2,
+                num_layers=bilstm_num_layers,
                 dropout=self.dropout_v
             )
         else:
@@ -193,7 +195,7 @@ class GATClassifier(nn.Module):
                 input_dim=vision_dim,
                 hidden_dim=hidden_channels,
                 output_dim=hidden_channels,
-                num_layers=2,
+                num_layers=bilstm_num_layers,
                 dropout=self.dropout_v
             )
 
@@ -203,7 +205,7 @@ class GATClassifier(nn.Module):
                 input_dim=audio_dim, 
                 hidden_dim=hidden_channels,
                 output_dim=hidden_channels,
-                num_layers=2,
+                num_layers=bilstm_num_layers,
                 dropout=self.dropout_a
             )
         else:
@@ -211,7 +213,7 @@ class GATClassifier(nn.Module):
                 input_dim=audio_dim,
                 hidden_dim=hidden_channels,
                 output_dim=hidden_channels,
-                num_layers=2,
+                num_layers=bilstm_num_layers,
                 dropout=self.dropout_a
             )
 
@@ -295,13 +297,13 @@ class GATClassifier(nn.Module):
         if x_vision.size(0) > 0 and len(vision_indices) > 0:
             h_vision, _ = self.vision_lstm(x_vision, vision_lengths) # (N, Hidden)
             if len(vision_indices) == h_vision.size(0):
-                final_x[vision_indices] = h_vision
+                final_x[vision_indices] = h_vision.to(x.dtype)
 
         # Audio
         if x_audio.size(0) > 0 and len(audio_indices) > 0:
             h_audio, _ = self.audio_lstm(x_audio, audio_lengths)
             if len(audio_indices) == h_audio.size(0):
-                final_x[audio_indices] = h_audio
+                final_x[audio_indices] = h_audio.to(x.dtype)
         
         # GAT 레이어 1
         x = F.dropout(final_x, p=self.dropout_g, training=self.training)
@@ -367,6 +369,7 @@ class GATJKClassifier(nn.Module):
             audio_dim,
             hidden_channels,
             num_layers,
+            bilstm_num_layers,
             num_classes,
             dropout_dict,
             heads=8,
@@ -380,6 +383,7 @@ class GATJKClassifier(nn.Module):
             audio_dim: audio 피처 원본 차원
             hidden_channels: GAT hidden 차원
             num_layers: GAT 레이어 수
+            bilstm_num_layers: BiLSTM 레이어 수
             num_classes: 분류 클래스 수
             heads: attention head 수
             dropout: dropout 비율
@@ -412,7 +416,7 @@ class GATJKClassifier(nn.Module):
                 input_dim=vision_dim, 
                 hidden_dim=hidden_channels,
                 output_dim=hidden_channels,
-                num_layers=2,
+                num_layers=bilstm_num_layers,
                 dropout=self.dropout_v
             )
         else:
@@ -420,7 +424,7 @@ class GATJKClassifier(nn.Module):
                 input_dim=vision_dim,
                 hidden_dim=hidden_channels,
                 output_dim=hidden_channels,
-                num_layers=2,
+                num_layers=bilstm_num_layers,
                 dropout=self.dropout_v
             )
 
@@ -430,7 +434,7 @@ class GATJKClassifier(nn.Module):
                 input_dim=audio_dim, 
                 hidden_dim=hidden_channels,
                 output_dim=hidden_channels,
-                num_layers=2,
+                num_layers=bilstm_num_layers,
                 dropout=self.dropout_a
             )
         else:
@@ -438,7 +442,7 @@ class GATJKClassifier(nn.Module):
                 input_dim=audio_dim,
                 hidden_dim=hidden_channels,
                 output_dim=hidden_channels,
-                num_layers=2,
+                num_layers=bilstm_num_layers,
                 dropout=self.dropout_a
             )
         
@@ -530,13 +534,13 @@ class GATJKClassifier(nn.Module):
         if x_vision.size(0) > 0 and len(vision_indices) > 0:
             h_vision, _ = self.vision_lstm(x_vision, vision_lengths) # (N, Hidden)
             if len(vision_indices) == h_vision.size(0):
-                x[vision_indices] = h_vision
+                x[vision_indices] = h_vision.to(x.dtype)
 
         # Audio
         if x_audio.size(0) > 0 and len(audio_indices) > 0:
             h_audio, _ = self.audio_lstm(x_audio, audio_lengths)
             if len(audio_indices) == h_audio.size(0):
-                x[audio_indices] = h_audio
+                x[audio_indices] = h_audio.to(x.dtype)
 
         xs = []
         

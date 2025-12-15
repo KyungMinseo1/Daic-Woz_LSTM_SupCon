@@ -1,6 +1,6 @@
 import torch, sys, os, argparse, yaml
 from .. import path_config
-from ..train_val import train_gat, validation_gat, check_lstm_grad
+from ..train_val import train_gat, validation_gat, check_lstm_grad, FocalLoss
 import pandas as pd
 import matplotlib.pyplot as plt
 from loguru import logger
@@ -8,7 +8,7 @@ from torch.optim import lr_scheduler
 from torch_geometric.loader import DataLoader
 from collections import Counter
 
-from .._multimodal_model_bilstm.GAT import GATClassifier
+from .._multimodal_model_bilstm.GAT import GATClassifier, GATJKClassifier
 from .dataset import make_graph
 
 import warnings
@@ -40,6 +40,8 @@ def main():
                       help="Sampling rate of Data.")
   parser.add_argument('--colab_path', type=str, default=None, 
                       help="Write the path of temporary directory when using colab. (Transcription/Vision/Audio)")
+  parser.add_argument('--version', type=int, default=1,
+                      help="Version of GAT (if 2, use JumpingKnowledge GAT)")
   
   opt = parser.parse_args()
   logger.info(opt)
@@ -77,7 +79,7 @@ def main():
   test_label = test_df.PHQ_Binary.tolist()
 
   logger.info("Processing Train Data")
-  train_graphs, v_dim, a_dim, _ = make_graph(
+  train_graphs, (t_dim, v_dim, a_dim) = make_graph(
     ids = train_id+val_id,
     labels = train_label+val_label,
     model_name = config['training']['embed_model'],
@@ -85,7 +87,7 @@ def main():
     use_summary_node = config['model']['use_summary_node']
   )
   logger.info("Processing Validation Data")
-  val_graphs, _, _, _ = make_graph(
+  val_graphs, (_, _, _) = make_graph(
     ids = test_id,
     labels = test_label,
     model_name = config['training']['embed_model'],
@@ -113,25 +115,48 @@ def main():
 
   logger.info("Setting Training Environment")
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-  model = GATClassifier(
-      text_dim=train_graphs[0].x.shape[1],
-      vision_dim=v_dim,
-      audio_dim=a_dim,
-      hidden_channels=config['model']['h_dim'],
-      num_layers=config['model']['num_layers'],
-      num_classes=2,
-      dropout_dict=dropout_dict,
-      heads=config['model']['head'],
-      use_attention=config['model']['use_attention'],
-      use_summary_node=config['model']['use_summary_node']
-  ).to(device)
+  if int(opt.version) == 1:
+    model = GATClassifier(
+        text_dim=t_dim,
+        vision_dim=v_dim,
+        audio_dim=a_dim,
+        hidden_channels=config['model']['h_dim'],
+        num_layers=config['model']['num_layers'],
+        num_classes=2,
+        dropout_dict=dropout_dict,
+        heads=config['model']['head'],
+        use_attention=config['model']['use_attention'],
+        use_summary_node=config['model']['use_summary_node'],
+        use_text_proj=config['model']['use_text_proj']
+    ).to(device)
+  elif int(opt.version) == 2:
+    model = GATJKClassifier(
+        text_dim=t_dim,
+        vision_dim=v_dim,
+        audio_dim=a_dim,
+        hidden_channels=config['model']['h_dim'],
+        num_layers=config['model']['num_layers'],
+        num_classes=2,
+        dropout_dict=dropout_dict,
+        heads=config['model']['head'],
+        use_attention=config['model']['use_attention'],
+        use_summary_node=config['model']['use_summary_node'],
+        use_text_proj=config['model']['use_text_proj']
+    ).to(device)
   logger.info(f"Model initialized with:")
   logger.info(f"  - Text dim: {train_graphs[0].x.shape[1]}")
   logger.info(f"  - Vision dim: {v_dim}")
   logger.info(f"  - Audio dim: {a_dim}")
   logger.info(f"  - Hidden channels: {config['model']['h_dim']}")
   
-  optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['lr'], weight_decay=config['training']['weight-decay'])
+  optimizer = torch.optim.AdamW(model.parameters(), lr=config['training']['lr'], weight_decay=config['training']['weight-decay'])
+
+  warmup_epochs = config['training']['warmup_epoch']
+  def warmup_lambda(epoch):
+    return (epoch + 1) / warmup_epochs if epoch < warmup_epochs else 1.0
+  
+  warmup_scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lambda)
+
   if config['training']['scheduler'] == 'steplr':
     scheduler = lr_scheduler.StepLR(optimizer, step_size=config['training']['step-size'], gamma=config['training']['gamma'])
   elif config['training']['scheduler'] == 'cosinelr':
@@ -139,8 +164,8 @@ def main():
   elif config['training']['scheduler'] == 'reducelr':
     scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
 
-  criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([class_weights]).to(device))
-  # criterion = FocalLoss(alpha=0.75, gamma=3.0).to(device)
+  # criterion = torch.nn.BCEWithLogitsLoss(pos_weight=torch.tensor([class_weights]).to(device))
+  criterion = FocalLoss(alpha=0.75, gamma=3.0).to(device)
   logger.info("Environment Ready")
   logger.info("Providing Loader")
   train_loader = DataLoader(train_graphs, batch_size=config['training']['bs'], shuffle=True)
@@ -159,6 +184,7 @@ def main():
     try:
       model.load_state_dict(checkpoint['model_state_dict'])
       optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+      warmup_scheduler.load_state_dict(checkpoint['warmup_scheduler_state_dict'])
       scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
       starting_epoch = checkpoint['epoch'] + 1
       history = checkpoint['history']
@@ -181,7 +207,8 @@ def main():
       criterion=criterion,
       optimizer=optimizer,
       device=device,
-      num_classes=2)
+      num_classes=2,
+      use_scaler=True)
     
     torch.cuda.empty_cache()
     
@@ -191,10 +218,15 @@ def main():
       device=device,
       num_classes=2)
     
-    if isinstance(scheduler, lr_scheduler.ReduceLROnPlateau):
-      scheduler.step(float(val_f1))
-    else:
-      scheduler.step()
+    if epoch < warmup_epochs:
+      warmup_scheduler.step()
+      logger.info(f"Warm-up phase: {epoch+1}/{warmup_epochs}")
+    else:  
+      if isinstance(scheduler, lr_scheduler.ReduceLROnPlateau):
+        scheduler.step(float(val_f1))
+      else:
+        scheduler.step()
+
     current_lr = optimizer.param_groups[0]['lr']
     
     history['epoch'].append(epoch)
@@ -230,6 +262,7 @@ def main():
       'epoch': epoch,
       'model_state_dict': model.state_dict(),
       'optimizer_state_dict': optimizer.state_dict(),
+      'warmup_scheduler_state_dict': warmup_scheduler.state_dict(),
       'scheduler_state_dict': scheduler.state_dict(),
       'config' : config,
       'history': history,
@@ -248,7 +281,7 @@ def main():
       patience_counter += 1
       logger.info(f"No improvement for {patience_counter} epoch(s). Best: {best_val_f1:.4f} at epoch {best_epoch}")
 
-    if epoch+1 % 20 == 0:
+    if (epoch+1) % 20 == 0:
       checkpoint_path = os.path.join(CHECKPOINTS_DIR, f"checkpoint_epoch{epoch}.pth")
       torch.save(checkpoint, checkpoint_path)
       logger.info(f"Checkpoint saved: {checkpoint_path}")
@@ -321,7 +354,7 @@ if __name__=="__main__":
   main()
 
 # first
-#   ex) python graph/train_with_lstm.py --save_dir checkpoints_graph3 --save_dir_ LSTM_graph_11(focal) --num_epochs 150 --patience 30
+#   ex) python -m graph.multimodal_topic_bilstm_proxy.train --save_dir checkpoints_graph4 --save_dir_ multimodal_topic_bilstm_proxy_v2_1(focal) --num_epochs 300 --patience 30 --version 2
 #     -> epochs: 150, config_file: graph/configs/architecture.yaml, save_path: checkpoints_graph3/LSTM_graph_11(focal), patience: 30
 # resume
 #   ex) python graph/train.py --resume checkpoints/checkpoints1/best_model.pth

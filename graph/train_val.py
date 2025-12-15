@@ -5,6 +5,10 @@ import torch.nn.functional as F
 from sklearn.metrics import f1_score
 from torch.cuda.amp import autocast, GradScaler
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning) 
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 logger.remove()
 logger.add(
   sys.stdout,
@@ -47,13 +51,14 @@ class FocalLoss(torch.nn.Module):
       return torch.mean(f_loss)
     return f_loss
 
-def train_gat(train_loader, model, criterion, optimizer, device, mode='multimodal', num_classes=2):  
+def train_gat(train_loader, model, criterion, optimizer, device, mode='multimodal', num_classes=2, use_scaler=False):  
   model.train()
   total_loss = 0
   all_preds = []
   all_labels = []
 
-  # scaler = GradScaler()
+  if use_scaler:
+    scaler = GradScaler()
 
   pbar = tqdm(train_loader, desc='Training', ncols=120)
   
@@ -74,18 +79,38 @@ def train_gat(train_loader, model, criterion, optimizer, device, mode='multimoda
 
     optimizer.zero_grad()
     
-    # with autocast():
-    out = model(batch)
-    if num_classes == 2:
-      # Binary classification
-      loss = criterion(out, batch.y.float())
-      pred = (torch.sigmoid(out) > 0.5).long()
+    if use_scaler:
+      with autocast():
+        out = model(batch)
+        if num_classes == 2:
+          # Binary classification
+          loss = criterion(out, batch.y.float())
+          pred = (torch.sigmoid(out) > 0.5).long()
+        else:
+          # Multi-class classification
+          loss = criterion(out, batch.y)
+          pred = out.argmax(dim=1)
     else:
-      # Multi-class classification
-      loss = criterion(out, batch.y)
-      pred = out.argmax(dim=1)
+      out = model(batch)
+      if num_classes == 2:
+        # Binary classification
+        loss = criterion(out, batch.y.float())
+        pred = (torch.sigmoid(out) > 0.5).long()
+      else:
+        # Multi-class classification
+        loss = criterion(out, batch.y)
+        pred = out.argmax(dim=1)
 
-    loss.backward()
+    if use_scaler:
+      scaler.scale(loss).backward()
+      scaler.unscale_(optimizer)
+      # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
+      scaler.step(optimizer)
+      scaler.update()
+    else:
+      loss.backward()
+      # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
+      optimizer.step()
 
     # logger.info("--- Gradient Check ---")
     # for name, param in model.named_parameters():
@@ -94,13 +119,6 @@ def train_gat(train_loader, model, criterion, optimizer, device, mode='multimoda
     #     if grad_norm > 1.0: # 튀는 놈만 출력
     #       logger.info(f"{name}: {grad_norm:.4f}")
     # logger.info("----------------------\n")
-
-    # scaler.scale(loss).backward()
-    # scaler.unscale_(optimizer)
-    # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
-    # scaler.step(optimizer)
-    # scaler.update()
-    optimizer.step()
     
     total_norm = 0.0
     has_nan = False
