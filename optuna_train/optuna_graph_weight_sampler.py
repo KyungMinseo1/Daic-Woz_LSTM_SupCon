@@ -27,7 +27,7 @@ from graph.multimodal_topic_bilstm_proxy.dataset import make_graph as TopicProxy
 from graph.multimodal_topic_proxy.dataset import make_graph as TopicProxy_make_graph
 from graph.unimodal_topic.dataset import make_graph as UniTopic_make_graph
 
-from graph.train_val import train_gat, validation_gat
+from graph.train_val import train_gat, validation_gat, FocalLoss
 
 logger.remove()
 logger.add(
@@ -63,33 +63,11 @@ MAKE_GRAPH = {
   'unimodal_topic':UniTopic_make_graph
   }
 
-class FocalLoss(nn.Module):
-  def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
-    super(FocalLoss, self).__init__()
-    self.alpha = alpha
-    self.gamma = gamma
-    self.reduction = reduction
-
-  def forward(self, inputs, targets):
-    # inputs: Logits (Sigmoid 통과 전)
-    BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
-    pt = torch.exp(-BCE_loss) # pt: 모델이 해당 클래스일 확률
-    
-    # Focal Term: (1 - pt)^gamma
-    F_loss = self.alpha * (1 - pt) ** self.gamma * BCE_loss
-
-    if self.reduction == 'mean':
-      return torch.mean(F_loss)
-    elif self.reduction == 'sum':
-      return torch.sum(F_loss)
-    else:
-      return F_loss
-
 def bilstm_objective(
     trial, config, mode, version,
     train_graphs, val_graphs, sampler,
     text_dim, vision_dim, audio_dim,
-    epochs, device, checkpoints_dir, patience
+    epochs, device, checkpoints_dir, patience, use_scaler
     ): # with Attention
   
   lr_list = [float(i) for i in config['training']['lr_list']]
@@ -97,6 +75,7 @@ def bilstm_objective(
   wd_list = [float(i) for i in config['training']['weight_decay_list']]
   gm_list = [float(i) for i in config['training']['focal_gamma_list']]
   nl_list = [int(i) for i in config['model']['num_layers_list']]
+  bnl_list = [int(i) for i in config['model']['bilstm_num_layers_list']]
   t_do_list = [float(i) for i in config['model']['text_dropout_list']]
   g_do_list = [float(i) for i in config['model']['graph_dropout_list']]
   v_do_list = [float(i) for i in config['model']['vision_dropout_list']]
@@ -106,6 +85,7 @@ def bilstm_objective(
   wd_min = min(wd_list); wd_max = max(wd_list)
   gm_min = min(gm_list); gm_max = max(gm_list)
   nl_min = min(nl_list); nl_max = max(nl_list)
+  bnl_min = min(bnl_list); bnl_max = max(bnl_list)
   t_do_min = min(t_do_list); t_do_max = max(t_do_list)
   g_do_min = min(g_do_list); g_do_max = max(g_do_list)
   v_do_min = min(v_do_list); v_do_max = max(v_do_list)
@@ -117,6 +97,7 @@ def bilstm_objective(
   focal_gamma = trial.suggest_float("focal_gamma", gm_min, gm_max)
   optimizer = trial.suggest_categorical("optimizer", ["Adam", "AdamW", "MomentumSGD"])
   num_layers = trial.suggest_int("num_layers", nl_min, nl_max)
+  bilstm_num_layers = trial.suggest_int("bilstm_num_layers", bnl_min, bnl_max)
   t_dropout = trial.suggest_float("t_dropout", t_do_min, t_do_max)
   g_dropout = trial.suggest_float("g_dropout", g_do_min, g_do_max)
   v_dropout = trial.suggest_float("v_dropout", v_do_min, v_do_max)
@@ -145,6 +126,7 @@ def bilstm_objective(
     audio_dim=audio_dim,
     hidden_channels=256 if use_text_proj else text_dim,
     num_layers=num_layers,
+    bilstm_num_layers=bilstm_num_layers,
     num_classes=2,
     dropout_dict=dropout_dict,
     heads=8,
@@ -162,6 +144,12 @@ def bilstm_objective(
   elif optimizer == "MomentumSGD":
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.99)
 
+  warmup_epochs = config['training']['warmup_epoch']
+  def warmup_lambda(epoch):
+    return (epoch + 1) / warmup_epochs if epoch < warmup_epochs else 1.0
+  
+  warmup_scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lambda)
+
   if config['training']['scheduler'] == 'steplr':
     scheduler = lr_scheduler.StepLR(optimizer, step_size=config['training']['step-size'], gamma=config['training']['gamma'])
   elif config['training']['scheduler'] == 'cosinelr':
@@ -169,10 +157,17 @@ def bilstm_objective(
   elif config['training']['scheduler'] == 'reducelr':
     scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
 
-  logger.info(f"Model initialized with:")
+  logger.info(f"--- Model Initialization ---")
   logger.info(f"  - Text dim: {text_dim}")
   logger.info(f"  - Vision dim: {vision_dim}")
   logger.info(f"  - Audio dim: {audio_dim}")
+  logger.info("-----------------------------")
+
+  logger.info(f"--- Trial Configuration ---")
+  logger.info(f"  - Model: {str(model_dict[mode].__name__)}")
+  logger.info(f"  - Optimizer: {str(optimizer.__class__.__name__)}")
+  logger.info(f"  - Scheduler: {str(scheduler.__class__.__name__)}")
+  logger.info("----------------------------")
 
   logger.info("Training Start")
 
@@ -189,7 +184,8 @@ def bilstm_objective(
         criterion=criterion,
         optimizer=optimizer,
         device=device,
-        num_classes=2
+        num_classes=2,
+        use_scaler=use_scaler
       )
 
       torch.cuda.empty_cache()
@@ -217,10 +213,14 @@ def bilstm_objective(
         logger.info(f"Early stopping at epoch {epoch} (Best F1: {best_val_f1})")
         break
       
-      if isinstance(scheduler, lr_scheduler.ReduceLROnPlateau):
-        scheduler.step(float(val_f1))
-      else:
-        scheduler.step()
+      if epoch < warmup_epochs:
+        warmup_scheduler.step()
+        logger.info(f"Warm-up phase: {epoch+1}/{warmup_epochs}")
+      else:  
+        if isinstance(scheduler, lr_scheduler.ReduceLROnPlateau):
+          scheduler.step(float(val_f1))
+        else:
+          scheduler.step()
 
     current_study = trial.study
     try:
@@ -251,7 +251,7 @@ def objective(
     trial, config, mode, version,
     train_graphs, val_graphs, sampler,
     text_dim, vision_dim, audio_dim,
-    epochs, device, checkpoints_dir, patience
+    epochs, device, checkpoints_dir, patience, use_scaler
     ): # with Attention
   
   lr_list = [float(i) for i in config['training']['lr_list']]
@@ -334,6 +334,12 @@ def objective(
   elif optimizer == "MomentumSGD":
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.99)
 
+  warmup_epochs = config['training']['warmup_epoch']
+  def warmup_lambda(epoch):
+    return (epoch + 1) / warmup_epochs if epoch < warmup_epochs else 1.0
+  
+  warmup_scheduler = lr_scheduler.LambdaLR(optimizer, lr_lambda=warmup_lambda)
+
   if config['training']['scheduler'] == 'steplr':
     scheduler = lr_scheduler.StepLR(optimizer, step_size=config['training']['step-size'], gamma=config['training']['gamma'])
   elif config['training']['scheduler'] == 'cosinelr':
@@ -341,10 +347,17 @@ def objective(
   elif config['training']['scheduler'] == 'reducelr':
     scheduler = lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
 
-  logger.info(f"Model initialized with:")
+  logger.info(f"--- Model Initialization ---")
   logger.info(f"  - Text dim: {text_dim}")
   logger.info(f"  - Vision dim: {vision_dim}")
   logger.info(f"  - Audio dim: {audio_dim}")
+  logger.info("-----------------------------")
+
+  logger.info(f"--- Trial Configuration ---")
+  logger.info(f"  - Model: {str(model_dict[mode].__name__)}")
+  logger.info(f"  - Optimizer: {str(optimizer.__class__.__name__)}")
+  logger.info(f"  - Scheduler: {str(scheduler.__class__.__name__)}")
+  logger.info("----------------------------")
 
   logger.info("Training Start")
 
@@ -363,7 +376,8 @@ def objective(
           optimizer=optimizer,
           device=device,
           mode='unimodal',
-          num_classes=2
+          num_classes=2,
+          use_scaler=use_scaler
         )
       else:
         train_loss, train_acc, train_f1 = train_gat(
@@ -372,7 +386,8 @@ def objective(
           criterion=criterion,
           optimizer=optimizer,
           device=device,
-          num_classes=2
+          num_classes=2,
+          use_scaler=use_scaler
         )
 
       torch.cuda.empty_cache()
@@ -400,10 +415,14 @@ def objective(
         logger.info(f"Early stopping at epoch {epoch} (Best F1: {best_val_f1})")
         break
       
-      if isinstance(scheduler, lr_scheduler.ReduceLROnPlateau):
-        scheduler.step(float(val_f1))
-      else:
-        scheduler.step()
+      if epoch < warmup_epochs:
+        warmup_scheduler.step()
+        logger.info(f"Warm-up phase: {epoch+1}/{warmup_epochs}")
+      else:  
+        if isinstance(scheduler, lr_scheduler.ReduceLROnPlateau):
+          scheduler.step(float(val_f1))
+        else:
+          scheduler.step()
 
     current_study = trial.study
     try:
@@ -439,21 +458,23 @@ def main():
                       help="Which optuna configuration to use. See into 'config' folder.")
   # If you want to resume, just put in the original directory path with study SQlite DB.
   parser.add_argument('--save_dir', type=str, default='checkpoints', metavar='PATH',
-                      help="Directory path to save model")
+                      help="Directory path to save model.")
   parser.add_argument('--save_dir_', type=str, default='checkpoints1', metavar='PATH',
-                      help="Exact directory path to save model")
+                      help="Exact directory path to save model.")
   parser.add_argument('--patience', type=int, default=10, 
                       help="How many epochs wait before stopping for validation loss not improving.")
   parser.add_argument('--sample_rate', type=float, default=1.0, 
                       help="Sampling rate of Data.")
   parser.add_argument('--colab_path', type=str, default=None, 
-                      help="Write the path of temporary directory when using colab. (Transcription/Vision/Audio)")
+                      help="Write the path of temporary directory when using colab. (Transcription/Vision/Audio).")
   parser.add_argument('--mode', type=str, default=None,
                       help=f"Model for optuna {list(MODEL.keys())}")
   parser.add_argument('--tt_connect', type=bool, default=False,
-                      help="Text to text connection.")
+                      help="Allowing text to text connection.")
   parser.add_argument('--version', type=int, default=1,
-                      help="GATClassifier version.")
+                      help="Version of GAT (if 2, use JumpingKnowledge GAT).")
+  parser.add_argument('--use_scaler', type=bool, default=True,
+                      help="Using Gradiant Scaler (gradient can explode to Nan or Inf when turned on).")
   
   opt = parser.parse_args()
   logger.info(opt)
@@ -558,7 +579,7 @@ def main():
             trial=trial, config=config, mode=opt.mode, version=opt.version,
             train_graphs=train_graphs, val_graphs=val_graphs, sampler=sampler,
             text_dim=t_dim, vision_dim=v_dim, audio_dim=a_dim,
-            epochs=opt.num_epochs, device=device, checkpoints_dir=CHECKPOINTS_DIR, patience=opt.patience
+            epochs=opt.num_epochs, device=device, checkpoints_dir=CHECKPOINTS_DIR, patience=opt.patience, use_scaler=opt.use_scaler
           ),
         n_trials=50
       )
@@ -568,7 +589,7 @@ def main():
             trial=trial, config=config, mode=opt.mode, version=opt.version,
             train_graphs=train_graphs, val_graphs=val_graphs, sampler=sampler,
             text_dim=t_dim, vision_dim=v_dim, audio_dim=a_dim,
-            epochs=opt.num_epochs, device=device, checkpoints_dir=CHECKPOINTS_DIR, patience=opt.patience
+            epochs=opt.num_epochs, device=device, checkpoints_dir=CHECKPOINTS_DIR, patience=opt.patience, use_scaler=opt.use_scaler
           ),
         n_trials=50
       )
@@ -597,6 +618,8 @@ if __name__=="__main__":
   main()
 
 # Example for multimodal_proxy
-#   -> python optuna_train/optuna_graph_weight_sampler.py --mode multimodal_proxy --num_epochs 300 --patience 30 --save_dir checkpoints_optuna --save_dir_ multimodal_proxy
+# -> python optuna_train/optuna_graph_weight_sampler.py --mode multimodal_proxy --num_epochs 300 --patience 30 --save_dir checkpoints_optuna --save_dir_ multimodal_proxy
 # Example for multimodal_proxy_v2
-#   -> python optuna_train/optuna_graph_weight_sampler.py --mode multimodal_proxy --num_epochs 300 --patience 30 --save_dir checkpoints_optuna --save_dir_ multimodal_proxy --version 2
+# -> python optuna_train/optuna_graph_weight_sampler.py --mode multimodal_proxy --num_epochs 300 --patience 30 --save_dir checkpoints_optuna --save_dir_ multimodal_proxy_v2 --version 2
+# Example for multimodal_topic_bilstm_v2 (recommend using gradscaler when using bilstm)
+# -> python optuna_train/optuna_graph_weight_sampler.py --mode multimodal_topic_bilstm --num_epochs 300 --patience 30 --save_dir checkpoints_optuna --save_dir_ multimodal_topic_bilstm_v2 --version 2 --use_scaler True

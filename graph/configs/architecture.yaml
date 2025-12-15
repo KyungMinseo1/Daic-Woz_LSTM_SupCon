@@ -12,6 +12,7 @@ model:
   h_dim: 256
   head: 8
   num_layers: 3
+  bilstm_num_layers: 2
   t_dropout: 0.3
   g_dropout: 0.3
   v_dropout: 0.3

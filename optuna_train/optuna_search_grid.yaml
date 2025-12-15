@@ -1,7 +1,8 @@
 training:
   lr_list: [1e-6, 1e-4]
   weight_decay_list: [1e-5, 1e-3]
-  bs_list: [4, 8, 16]
+  bs_list: [4, 8]
+  warmup_epoch: 5
   scheduler: 'reducelr'
   focal_gamma_list: [1.0, 5.0]
   step-size: 50
@@ -11,6 +12,7 @@ model:
   h_dim: 256
   head: 8
   num_layers_list: [2,4]
+  bilstm_num_layers_list: [1,2]
   text_dropout_list: [0.1,0.6]
   graph_dropout_list: [0.1,0.6]
   vision_dropout_list: [0.1,0.6]
