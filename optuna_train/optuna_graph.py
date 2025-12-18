@@ -16,6 +16,7 @@ from torch_geometric.loader import DataLoader
 from graph._multimodal_model_bilstm.GAT import GATClassifier as BiLSTMGAT, GATJKClassifier as BiLSTMV2GAT
 from graph._multimodal_model_no_bilstm.GAT import GATClassifier as NoBiLSTMGAT, GATJKClassifier as NoBiLSTMV2GAT
 from graph._unimodal_model.GAT import GATClassifier as UniGAT, GATJKClassifier as UniV2GAT
+from graph._bimodal_model_bilstm.GAT import GATClassifier as BiGAT, GATJKClassifier as BiV2GAT
 
 from graph.multimodal_bilstm.dataset import make_graph as BiLSTM_make_graph
 from graph.multimodal_proxy.dataset import make_graph as Proxy_make_graph
@@ -23,6 +24,7 @@ from graph.multimodal_topic_bilstm.dataset import make_graph as TopicBiLSTM_make
 from graph.multimodal_topic_bilstm_proxy.dataset import make_graph as TopicProxyBiLSTM_make_graph
 from graph.multimodal_topic_proxy.dataset import make_graph as TopicProxy_make_graph
 from graph.unimodal_topic.dataset import make_graph as UniTopic_make_graph
+from graph.bimodal_topic_bilstm_proxy.dataset import make_graph as BiTopicProxy_make_graph
 
 from graph.train_val import train_gat, validation_gat
 
@@ -39,7 +41,8 @@ MODEL = {
   'multimodal_topic_bilstm':BiLSTMGAT,
   'multimodal_topic_bilstm_proxy':BiLSTMGAT,
   'multimodal_topic_proxy':NoBiLSTMGAT,
-  'unimodal_topic':UniGAT
+  'unimodal_topic':UniGAT,
+  'bimodal_topic_bilstm_proxy':BiGAT
 }
 
 V2_MODEL = {
@@ -48,7 +51,8 @@ V2_MODEL = {
   'multimodal_topic_bilstm':BiLSTMV2GAT,
   'multimodal_topic_bilstm_proxy':BiLSTMV2GAT,
   'multimodal_topic_proxy':NoBiLSTMV2GAT,
-  'unimodal_topic':UniV2GAT
+  'unimodal_topic':UniV2GAT,
+  'bimodal_topic_bilstm_proxy':BiV2GAT
 }
 
 MAKE_GRAPH = {
@@ -57,7 +61,8 @@ MAKE_GRAPH = {
   'multimodal_topic_bilstm':TopicBiLSTM_make_graph,
   'multimodal_topic_bilstm_proxy':TopicProxyBiLSTM_make_graph,
   'multimodal_topic_proxy':TopicProxy_make_graph,
-  'unimodal_topic':UniTopic_make_graph
+  'unimodal_topic':UniTopic_make_graph,
+  'bimodal_topic_bilstm_proxy':BiTopicProxy_make_graph
 }
 
 def bilstm_objective(
@@ -106,19 +111,34 @@ def bilstm_objective(
   elif int(version) == 2:
     model_dict = V2_MODEL
 
-  model = model_dict[mode](
-    text_dim=text_dim,
-    vision_dim=vision_dim,
-    audio_dim=audio_dim,
-    hidden_channels=256 if use_text_proj else text_dim,
-    num_layers=num_layers,
-    num_classes=2,
-    dropout_dict=dropout_dict,
-    heads=8,
-    use_attention=use_attention,
-    use_summary_node=True,
-    use_text_proj=use_text_proj
-  ).to(device)
+  if 'bimodal' in mode:
+    model = model_dict[mode](
+      text_dim=text_dim,
+      vision_dim=vision_dim,
+      hidden_channels=256 if use_text_proj else text_dim,
+      num_layers=num_layers,
+      num_classes=2,
+      dropout_dict=dropout_dict,
+      heads=8,
+      use_attention=use_attention,
+      use_summary_node=True,
+      use_text_proj=use_text_proj
+    ).to(device)
+
+  else:
+    model = model_dict[mode](
+      text_dim=text_dim,
+      vision_dim=vision_dim,
+      audio_dim=audio_dim,
+      hidden_channels=256 if use_text_proj else text_dim,
+      num_layers=num_layers,
+      num_classes=2,
+      dropout_dict=dropout_dict,
+      heads=8,
+      use_attention=use_attention,
+      use_summary_node=True,
+      use_text_proj=use_text_proj
+    ).to(device)
 
   if optimizer == "Adam":
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -466,6 +486,33 @@ def main():
 
     # temporary value
     v_dim = None
+    a_dim = None
+
+  elif 'bimodal' in opt.mode:
+    logger.info(f"Processing Bimodal Train Data (Mode: {opt.mode})")
+
+    train_graphs, (t_dim, v_dim) = MAKE_GRAPH[opt.mode](
+      ids = train_id+val_id,
+      labels = train_label+val_label,
+      model_name = config['training']['embed_model'],
+      colab_path = opt.colab_path,
+      use_summary_node = True,
+      t_t_connect=opt.tt_connect,
+      v_a_connect=False
+    )
+
+    logger.info("Processing Multimodal Validation Data")
+    val_graphs, (_, _) = MAKE_GRAPH[opt.mode](
+      ids = test_id,
+      labels = test_label,
+      model_name = config['training']['embed_model'],
+      colab_path = opt.colab_path,
+      use_summary_node = True,
+      t_t_connect=opt.tt_connect,
+      v_a_connect=False
+    )
+
+    # temporary value
     a_dim = None
 
   else:
