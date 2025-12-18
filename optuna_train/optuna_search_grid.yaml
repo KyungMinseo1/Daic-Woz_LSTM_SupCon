@@ -4,6 +4,7 @@ training:
   bs_list: [4, 8]
   warmup_epoch: 5
   scheduler: 'reducelr'
+  focal_alpha_list: [0.5, 1.0]  # Focus on class '1'
   focal_gamma_list: [1.0, 5.0]
   step-size: 50
   embed_model: 'sentence-transformers/all-MiniLM-L6-v2'
