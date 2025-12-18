@@ -7,6 +7,7 @@ import optuna
 import os, argparse, yaml, path_config, shutil
 from collections import Counter
 import pandas as pd
+import numpy as np
 from loguru import logger
 
 import torch
@@ -27,7 +28,7 @@ from graph.multimodal_topic_bilstm_proxy.dataset import make_graph as TopicProxy
 from graph.multimodal_topic_proxy.dataset import make_graph as TopicProxy_make_graph
 from graph.unimodal_topic.dataset import make_graph as UniTopic_make_graph
 
-from graph.train_val import train_gat, validation_gat, FocalLoss
+from graph.train_val import train_gat, validation_gat
 
 logger.remove()
 logger.add(
@@ -63,6 +64,29 @@ MAKE_GRAPH = {
   'unimodal_topic':UniTopic_make_graph
   }
 
+class FocalLoss(nn.Module):
+  def __init__(self, alpha=0.75, gamma=2.0, reduction='mean'):
+    super(FocalLoss, self).__init__()
+    self.alpha = alpha
+    self.gamma = gamma
+    self.reduction = reduction
+
+  def forward(self, inputs, targets):
+    # inputs: Logits (Sigmoid 통과 전)
+    BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+    pt = torch.exp(-BCE_loss) # pt: 모델이 해당 클래스일 확률
+    
+    # Focal Term: (1 - pt)^gamma
+    alpha_t = self.alpha * targets + (1 - self.alpha) * (1 - targets)
+    F_loss = alpha_t * (1 - pt) ** self.gamma * BCE_loss
+
+    if self.reduction == 'mean':
+      return torch.mean(F_loss)
+    elif self.reduction == 'sum':
+      return torch.sum(F_loss)
+    else:
+      return F_loss
+
 def bilstm_objective(
     trial, config, mode, version,
     train_graphs, val_graphs, sampler,
@@ -73,7 +97,8 @@ def bilstm_objective(
   lr_list = [float(i) for i in config['training']['lr_list']]
   bs_list = [int(i) for i in config['training']['bs_list']]
   wd_list = [float(i) for i in config['training']['weight_decay_list']]
-  gm_list = [float(i) for i in config['training']['focal_gamma_list']]
+  # al_list = [float(i) for i in config['training']['focal_alpha_list']]
+  # gm_list = [float(i) for i in config['training']['focal_gamma_list']]
   nl_list = [int(i) for i in config['model']['num_layers_list']]
   bnl_list = [int(i) for i in config['model']['bilstm_num_layers_list']]
   t_do_list = [float(i) for i in config['model']['text_dropout_list']]
@@ -83,7 +108,8 @@ def bilstm_objective(
 
   lr_min = min(lr_list); lr_max = max(lr_list)
   wd_min = min(wd_list); wd_max = max(wd_list)
-  gm_min = min(gm_list); gm_max = max(gm_list)
+  # al_min = min(al_list); al_max = max(al_list)
+  # gm_min = min(gm_list); gm_max = max(gm_list)
   nl_min = min(nl_list); nl_max = max(nl_list)
   bnl_min = min(bnl_list); bnl_max = max(bnl_list)
   t_do_min = min(t_do_list); t_do_max = max(t_do_list)
@@ -94,7 +120,8 @@ def bilstm_objective(
   lr = trial.suggest_float("lr", lr_min, lr_max, log=True)
   bs = trial.suggest_categorical("batch_size", bs_list)
   weight_decay = trial.suggest_float("weight_decay", wd_min, wd_max, log=True)
-  focal_gamma = trial.suggest_float("focal_gamma", gm_min, gm_max)
+  # focal_alpha = trial.suggest_float("focal_alpha", al_min, al_max)
+  # focal_gamma = trial.suggest_float("focal_gamma", gm_min, gm_max)
   optimizer = trial.suggest_categorical("optimizer", ["Adam", "AdamW", "MomentumSGD"])
   num_layers = trial.suggest_int("num_layers", nl_min, nl_max)
   bilstm_num_layers = trial.suggest_int("bilstm_num_layers", bnl_min, bnl_max)
@@ -135,7 +162,8 @@ def bilstm_objective(
     use_text_proj=use_text_proj
   ).to(device)
 
-  criterion = FocalLoss(alpha=focal_gamma, gamma=2.0).to(device)
+  # criterion = FocalLoss(alpha=focal_alpha, gamma=focal_gamma).to(device)
+  criterion = torch.nn.BCEWithLogitsLoss()
 
   if optimizer == "Adam":
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -257,7 +285,8 @@ def objective(
   lr_list = [float(i) for i in config['training']['lr_list']]
   bs_list = [int(i) for i in config['training']['bs_list']]
   wd_list = [float(i) for i in config['training']['weight_decay_list']]
-  gm_list = [float(i) for i in config['training']['focal_gamma_list']]
+  # al_list = [float(i) for i in config['training']['focal_alpha_list']]
+  # gm_list = [float(i) for i in config['training']['focal_gamma_list']]
   nl_list = [int(i) for i in config['model']['num_layers_list']]
   t_do_list = [float(i) for i in config['model']['text_dropout_list']]
   g_do_list = [float(i) for i in config['model']['graph_dropout_list']]
@@ -266,7 +295,8 @@ def objective(
 
   lr_min = min(lr_list); lr_max = max(lr_list)
   wd_min = min(wd_list); wd_max = max(wd_list)
-  gm_min = min(gm_list); gm_max = max(gm_list)
+  # al_min = min(al_list); al_max = max(al_list)
+  # gm_min = min(gm_list); gm_max = max(gm_list)
   nl_min = min(nl_list); nl_max = max(nl_list)
   t_do_min = min(t_do_list); t_do_max = max(t_do_list)
   g_do_min = min(g_do_list); g_do_max = max(g_do_list)
@@ -276,7 +306,8 @@ def objective(
   lr = trial.suggest_float("lr", lr_min, lr_max, log=True)
   bs = trial.suggest_categorical("batch_size", bs_list)
   weight_decay = trial.suggest_float("weight_decay", wd_min, wd_max, log=True)
-  focal_gamma = trial.suggest_float("focal_gamma", gm_min, gm_max)
+  # focal_alpha = trial.suggest_float("focal_alpha", al_min, al_max)
+  # focal_gamma = trial.suggest_float("focal_gamma", gm_min, gm_max)
   optimizer = trial.suggest_categorical("optimizer", ["Adam", "AdamW", "MomentumSGD"])
   num_layers = trial.suggest_int("num_layers", nl_min, nl_max)
   t_dropout = trial.suggest_float("t_dropout", t_do_min, t_do_max)
@@ -325,7 +356,8 @@ def objective(
       use_text_proj=use_text_proj
     ).to(device)
 
-  criterion = FocalLoss(alpha=focal_gamma, gamma=2.0).to(device)
+  # criterion = FocalLoss(alpha=focal_alpha, gamma=focal_gamma).to(device)
+  criterion = torch.nn.BCEWithLogitsLoss()
 
   if optimizer == "Adam":
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -547,8 +579,10 @@ def main():
   weight_for_0 = 1.0 / train_counters[0]
   weight_for_1 = 1.0 / train_counters[1]
 
+  logger.info(f"Classification Class: {np.unique(train_targets).tolist()}")
   logger.info(f"Weights for 0: {weight_for_0} | Weights for 1: {weight_for_1}")
 
+  logger.info("__VALIDATION_STATS__")
   val_counters = Counter(label.y.item() for label in val_graphs)
   logger.info(val_counters)
 
