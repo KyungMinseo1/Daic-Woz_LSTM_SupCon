@@ -363,14 +363,14 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
       a_dim = 0
     
     if explanation:
-      return graphs, (text_dim, v_dim, a_dim), topic_node_id_dict
+      return graphs, (text_dim, v_dim, a_dim), (topic_node_id_dict, utterances, vision_seq_list, audio_seq_list)
     else:
       return graphs, (text_dim, v_dim, a_dim)
   
   except Exception as e:
     logger.error(e)
     if explanation:
-      return [], (0, 0, 0), None
+      return [], (0, 0, 0), (None, None, None, None)
     else:
       return [], (0, 0, 0)
 
