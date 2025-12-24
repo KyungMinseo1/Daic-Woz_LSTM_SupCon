@@ -311,19 +311,21 @@ class GATJKClassifier(nn.Module):
           h_vision, _ = self.vision_lstm(x_vision, vision_lengths) # (N, Hidden)
           if len(vision_indices) == h_vision.size(0):
             mask_weight = x[vision_indices].mean(dim=1, keepdim=True)
-            final_x[vision_indices] = h_vision.to(x.dtype) * mask_weight
+            weighted_vision = h_vision.to(final_x.dtype) * mask_weight.to(final_x.dtype)
+            final_x[vision_indices] = weighted_vision
 
         # Audio
         if x_audio.size(0) > 0 and len(audio_indices) > 0:
           h_audio, _ = self.audio_lstm(x_audio, audio_lengths)
           if len(audio_indices) == h_audio.size(0):
             mask_weight = x[audio_indices].mean(dim=1, keepdim=True)
-            final_x[audio_indices] = h_audio.to(x.dtype) * mask_weight
+            weighted_audio = h_audio.to(final_x.dtype) * mask_weight.to(final_x.dtype)
+            final_x[audio_indices] = weighted_audio
 
         xs = []
         
         # GAT 레이어 1
-        x = F.dropout(x, p=self.dropout_g, training=self.training)
+        x = F.dropout(final_x, p=self.dropout_g, training=self.training)
         x = self.conv1(x, edge_index)
         x = self.norm1(x, batch)
         x = F.elu(x)
@@ -360,26 +362,26 @@ class GATJKClassifier(nn.Module):
         # graph_embeddings = global_mean_pool(x, batch) # [batch_size, hidden_channels]
 
         if self.use_summary_node:
-          # Summary node로 최종 로짓값 산출
-          if hasattr(data, 'ptr'):
-            summary_nodes = x[data.ptr[:-1]]
-          else:
-            summary_nodes = x[0].unsqueeze(0)
+            # Summary node로 최종 로짓값 산출
+            if hasattr(data, 'ptr'):
+                summary_nodes = x[data.ptr[:-1]]
+            else:
+                summary_nodes = x[0].unsqueeze(0)
 
-          # Classification
-          # x = F.dropout(graph_embeddings, p=self.dropout, training=self.training)
-          out = F.dropout(summary_nodes, p=self.dropout_g, training=self.training)
+            # Classification
+            # x = F.dropout(graph_embeddings, p=self.dropout, training=self.training)
+            out = F.dropout(summary_nodes, p=self.dropout_g, training=self.training)
           
         else:
-          # Summary node가 할당되지 않았다고 가정
-          # Topic node의 global pool 진행
-          topic_indices = [i for i, t in enumerate(flat_node_types) if t == 'topic']
-          topic_x = x[topic_indices]
-          topic_batch = batch[topic_indices]
-          if len(topic_x) > 0:
+            # Summary node가 할당되지 않았다고 가정
+            # Topic node의 global pool 진행
+            topic_indices = [i for i, t in enumerate(flat_node_types) if t == 'topic']
+            topic_x = x[topic_indices]
+            topic_batch = batch[topic_indices]
+            if len(topic_x) > 0:
                 topic_nodes = global_mean_pool(topic_x, topic_batch)
                 out = F.dropout(topic_nodes, p=self.dropout_g, training=self.training)
-          else:
+            else:
                 out = global_mean_pool(x, batch)
                 out = F.dropout(out, p=self.dropout_g, training=self.training)
           
