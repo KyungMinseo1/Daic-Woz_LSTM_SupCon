@@ -6,9 +6,11 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from loguru import logger
+
+import torch.nn.functional as F
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from .._multimodal_model_bilstm.GAT import GATClassifier
+from .._multimodal_model_bilstm.GAT import GATClassifier, GATJKClassifier
 import matplotlib.pyplot as plt
 from torch_geometric.utils import to_networkx
 import matplotlib.patches as mpatches
@@ -220,6 +222,7 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
         # Text
         if visualization:
           utterances = utterances[::5]
+          logger.info(f"TOTAL NUMBER OF DATA: {len(utterances)}")
           topics = topics[::5]
           start_stop_list = start_stop_list[::5]
 
@@ -279,10 +282,19 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
           stop_idx = int(stop*100) + 1
           a_target = audio_df.iloc[start_idx:stop_idx].values
 
-          if len(a_target)>0:
-            actual_a_len = min(len(a_target), MAX_SEQ_LEN_AUDIO)
+          a_tensor = torch.FloatTensor(a_target).T.unsqueeze(0)
 
-            a_seq_padded = pad_sequence_numpy(a_target, MAX_SEQ_LEN_AUDIO)
+          if a_tensor.size(-1) >= 4:
+            downsampled_a_tensor = F.avg_pool1d(a_tensor, kernel_size=3)
+          else:
+            downsampled_a_tensor = a_tensor
+
+          downsampled_a_target = downsampled_a_tensor.squeeze(0).T.numpy()
+
+          if len(downsampled_a_target)>0:
+            actual_a_len = min(len(downsampled_a_target), MAX_SEQ_LEN_AUDIO)
+
+            a_seq_padded = pad_sequence_numpy(downsampled_a_target, MAX_SEQ_LEN_AUDIO)
             audio_seq_list.append(a_seq_padded)
             audio_lengths_list.append(actual_a_len) # 길이 저장
 
@@ -349,6 +361,12 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
         data.vision_lengths = data_vision_lengths
         data.audio_lengths = data_audio_lengths
 
+        if visualization:
+          logger.info(f"X_Vision: {data.x_vision.shape}")
+          logger.info(f"X_Audio: {data.x_audio.shape}")
+          logger.info(f"X_Vision_Len: {data.vision_lengths.shape}")
+          logger.info(f"X_Audio_Len: {data.audio_lengths.shape}")
+
         graphs.append(data)
 
       except Exception as e:
@@ -383,7 +401,7 @@ if __name__=="__main__":
   # train_id = train_df.Participant_ID.tolist()
   # train_label = train_df.PHQ8_Binary.tolist()
 
-  train_id = [300]
+  train_id = [405]
   train_label = [0]
 
   logger.info(f"Using Sample ID: {train_id[0]}")
@@ -455,7 +473,7 @@ if __name__=="__main__":
   logger.info("Providing Loader/Model")
   device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
   train_loader = DataLoader(train_graphs, batch_size=4, shuffle=True)
-  model = GATClassifier(
+  model = GATJKClassifier(
       text_dim=train_graphs[0].x.shape[1],
       vision_dim=v_dim,
       audio_dim=a_dim,
