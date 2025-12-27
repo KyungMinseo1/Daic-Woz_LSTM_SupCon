@@ -195,19 +195,10 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
           v_seq = vision_df.loc[(start <= vision_df['timestamp']) & (vision_df['timestamp'] <= stop)]
           v_target = v_seq.drop(columns=['timestamp']).values
 
-          v_tensor = torch.FloatTensor(v_target).T.unsqueeze(0)
+          if len(v_target) > 0:
+            actual_v_len = min(len(v_target), MAX_SEQ_LEN_VISION)
 
-          if v_tensor.size(-1) >= 3:
-            downsampled_v_tensor = F.avg_pool1d(v_tensor, kernel_size=3) # 1 second downsampling
-          else:
-            downsampled_v_tensor = v_tensor
-
-          downsampled_v_target = downsampled_v_tensor.squeeze(0).T.numpy()
-
-          if len(downsampled_v_target) > 0:
-            actual_v_len = min(len(downsampled_v_target), MAX_SEQ_LEN_VISION)
-
-            v_seq_padded = pad_sequence_numpy(downsampled_v_target, MAX_SEQ_LEN_VISION) # [Seq, Dim]
+            v_seq_padded = pad_sequence_numpy(v_target, MAX_SEQ_LEN_VISION) # [Seq, Dim]
             vision_seq_list.append(v_seq_padded)
             vision_lengths_list.append(actual_v_len) # 길이 저장
 

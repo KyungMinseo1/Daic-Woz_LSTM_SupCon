@@ -29,8 +29,8 @@ logger.add(
   format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
 )
 
-MAX_SEQ_LEN_VISION = 150
-MAX_SEQ_LEN_AUDIO = 150
+MAX_SEQ_LEN_VISION = 300  # 10 seconds
+MAX_SEQ_LEN_AUDIO = 1000  # 10 seconds
 
 kor_to_eng_dict = {
   "심리 상태 및 감정": "Psychological State and Emotional Well-being", 
@@ -176,19 +176,10 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
           v_seq = vision_df.loc[(start <= vision_df['timestamp']) & (vision_df['timestamp'] <= stop)]
           v_target = v_seq.drop(columns=['timestamp']).values
 
-          v_tensor = torch.FloatTensor(v_target).T.unsqueeze(0)
+          if len(v_target) > 0:
+            actual_v_len = min(len(v_target), MAX_SEQ_LEN_VISION)
 
-          if v_tensor.size(-1) >= 3:
-            downsampled_v_tensor = F.avg_pool1d(v_tensor, kernel_size=3) # 0.1 second downsampling
-          else:
-            downsampled_v_tensor = v_tensor
-
-          downsampled_v_target = downsampled_v_tensor.squeeze(0).T.numpy()
-
-          if len(downsampled_v_target) > 0:
-            actual_v_len = min(len(downsampled_v_target), MAX_SEQ_LEN_VISION)
-
-            v_seq_padded = pad_sequence_numpy(downsampled_v_target, MAX_SEQ_LEN_VISION) # [Seq, Dim]
+            v_seq_padded = pad_sequence_numpy(v_target, MAX_SEQ_LEN_VISION) # [Seq, Dim]
             vision_seq_list.append(v_seq_padded)
             vision_lengths_list.append(actual_v_len) # 길이 저장
 
@@ -206,19 +197,10 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
           a_seq = audio_df[(start_idx <= audio_df['index']) & (audio_df['index'] <= stop_idx)]
           a_target = a_seq.drop(['index'], axis=1).values
 
-          a_tensor = torch.FloatTensor(a_target).T.unsqueeze(0)
+          if len(a_target)>0:
+            actual_a_len = min(len(a_target), MAX_SEQ_LEN_AUDIO)
 
-          if a_tensor.size(-1) >= 10:
-            downsampled_a_tensor = F.avg_pool1d(a_tensor, kernel_size=10) # 1 second downsampling
-          else:
-            downsampled_a_tensor = a_tensor
-
-          downsampled_a_target = downsampled_a_tensor.squeeze(0).T.numpy()
-
-          if len(downsampled_a_target)>0:
-            actual_a_len = min(len(downsampled_a_target), MAX_SEQ_LEN_AUDIO)
-
-            a_seq_padded = pad_sequence_numpy(downsampled_a_target, MAX_SEQ_LEN_AUDIO)
+            a_seq_padded = pad_sequence_numpy(a_target, MAX_SEQ_LEN_AUDIO)
             audio_seq_list.append(a_seq_padded)
             audio_lengths_list.append(actual_a_len) # 길이 저장
 
