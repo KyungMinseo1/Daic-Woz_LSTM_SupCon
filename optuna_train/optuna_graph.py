@@ -21,6 +21,8 @@ from graph._multimodal_model_no_bilstm.GAT import GATClassifier as NoBiLSTMGAT, 
 from graph._unimodal_model.GAT import GATClassifier as UniGAT, GATJKClassifier as UniV2GAT
 from graph._bimodal_model_bilstm.GAT import GATClassifier as BiGAT, GATJKClassifier as BiV2GAT
 
+from graph._multimodal_model_bilstm.GAT_LSTM import GATClassifier as LSTMGAT, GATJKClassifier as LSTMV2GAT
+
 from graph._multimodal_model_bilstm.GAT_explanation import GATJKClassifier as BiLSTMV2GAT_EX
 from graph._multimodal_model_no_bilstm.GAT_explanation import GATJKClassifier as NoBiLSTMV2GAT_EX
 from graph._bimodal_model_bilstm.GAT_explanation import GATJKClassifier as BiV2GAT_EX
@@ -59,11 +61,31 @@ MODEL = {
   'bimodal_topic_bilstm_proxy':BiGAT
 }
 
+MODEL_lstm = {
+  'multimodal_bilstm':LSTMGAT,
+  'multimodal_proxy':NoBiLSTMGAT,
+  'multimodal_topic_bilstm':LSTMGAT,
+  'multimodal_topic_bilstm_proxy':LSTMGAT,
+  'multimodal_topic_proxy':NoBiLSTMGAT,
+  'unimodal_topic':UniGAT,
+  'bimodal_topic_bilstm_proxy':BiGAT
+}
+
 V2_MODEL = {
   'multimodal_bilstm':BiLSTMV2GAT,
   'multimodal_proxy':NoBiLSTMV2GAT,
   'multimodal_topic_bilstm':BiLSTMV2GAT,
   'multimodal_topic_bilstm_proxy':BiLSTMV2GAT,
+  'multimodal_topic_proxy':NoBiLSTMV2GAT,
+  'unimodal_topic':UniV2GAT,
+  'bimodal_topic_bilstm_proxy':BiV2GAT
+}
+
+V2_MODEL_lstm = {
+  'multimodal_bilstm':LSTMV2GAT,
+  'multimodal_proxy':NoBiLSTMV2GAT,
+  'multimodal_topic_bilstm':LSTMV2GAT,
+  'multimodal_topic_bilstm_proxy':LSTMV2GAT,
   'multimodal_topic_proxy':NoBiLSTMV2GAT,
   'unimodal_topic':UniV2GAT,
   'bimodal_topic_bilstm_proxy':BiV2GAT
@@ -101,7 +123,7 @@ def bilstm_objective(
     trial, config, mode, version, explanation,
     train_graphs, val_graphs, pos_weight,
     text_dim, vision_dim, audio_dim,
-    epochs, device, checkpoints_dir, patience, use_scaler
+    epochs, device, checkpoints_dir, patience, use_scaler, bidirectional
     ): # with Attention
   
   lr_list = [float(i) for i in config['training']['lr_list']]
@@ -156,9 +178,15 @@ def bilstm_objective(
     model_dict = EX_MODEL
   else:
     if int(version) == 1:
-      model_dict = MODEL
+      if bidirectional:
+        model_dict = MODEL
+      else:
+        model_dict = MODEL_lstm
     elif int(version) == 2:
-      model_dict = V2_MODEL
+      if bidirectional:
+        model_dict = V2_MODEL
+      else:
+        model_dict = MODEL_lstm
 
   if 'bimodal' in mode:
     model = model_dict[mode](
@@ -576,6 +604,8 @@ def main():
                       help="Use GATClassifier/dataset of Explanation version.")
   parser.add_argument('--use_scaler', type=bool, default=False,
                       help="Using Gradiant Scaler (gradient can explode to Nan or Inf when turned on).")
+  parser.add_argument('--bidirectional', type=bool, default=False,
+                      help="Whether using Bidirectional LSTM or Non-Bidirectional LSTM.")
     
   opt = parser.parse_args()
   logger.info(opt)
@@ -705,7 +735,7 @@ def main():
             trial=trial, config=config, mode=opt.mode, version=opt.version, explanation=opt.explanation,
             train_graphs=train_graphs, val_graphs=val_graphs, pos_weight=class_weights_tensor,
             text_dim=t_dim, vision_dim=v_dim, audio_dim=a_dim,
-            epochs=opt.num_epochs, device=device, checkpoints_dir=CHECKPOINTS_DIR, patience=opt.patience, use_scaler=opt.use_scaler
+            epochs=opt.num_epochs, device=device, checkpoints_dir=CHECKPOINTS_DIR, patience=opt.patience, use_scaler=opt.use_scaler, bidirectional=opt.bidirectional
           ),
         n_trials=50
       )
