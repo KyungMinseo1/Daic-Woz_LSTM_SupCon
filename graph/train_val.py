@@ -104,12 +104,12 @@ def train_gat(train_loader, model, criterion, optimizer, device, mode='multimoda
     if use_scaler:
       scaler.scale(loss).backward()
       scaler.unscale_(optimizer)
-      # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
+      torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
       scaler.step(optimizer)
       scaler.update()
     else:
       loss.backward()
-      # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=3.0)
+      torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
       optimizer.step()
 
     # logger.info("--- Gradient Check ---")
