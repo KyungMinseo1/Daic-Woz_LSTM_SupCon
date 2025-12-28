@@ -29,7 +29,7 @@ BACKCHANNELS = {
   "wow", "oh no", "right", "hmm", "i see", "um", "aw", "cool", "oh my gosh,"
 }
 
-def process_transcription(df):
+def process_transcription(df, time_interval):
   utterances = []
   topics = []
   start_stop_list = []
@@ -68,8 +68,8 @@ def process_transcription(df):
         start_time = row['start_time']
         current_topic = row['topic']
 
-      if (row['stop_time'] - start_time) > 10:
-        # 연속 발화 길이가 10초를 넘는 경우 -> 데이터 강제 저장 (노드 분리)
+      if (row['stop_time'] - start_time) > time_interval:
+        # 연속 발화 길이가 'time_interval'초를 넘는 경우 -> 데이터 강제 저장 (노드 분리)
         utterances.append((temp_text + " " + value).strip())
         topics.append(row['topic'])
         start_stop_list.append([start_time, row['stop_time']])
