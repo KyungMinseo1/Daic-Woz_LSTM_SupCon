@@ -1,6 +1,6 @@
 import torch, sys, os, argparse, yaml
 from .. import path_config
-from ..train_val import train_gat, validation_gat, check_lstm_grad, FocalLoss
+from ..train_val import train_gat, validation_gat, check_lstm_grad, check_gru_grad, FocalLoss
 import pandas as pd
 import matplotlib.pyplot as plt
 from loguru import logger
@@ -9,7 +9,7 @@ from torch_geometric.loader import DataLoader
 from collections import Counter
 
 from .._multimodal_model_bilstm.GAT import GATClassifier, GATJKClassifier
-from .dataset import make_graph
+from .dataset_direct_conn import make_graph
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning) 
@@ -28,7 +28,7 @@ def main():
                       help='Number of training epochs.')
   parser.add_argument('--resume', default='', type=str, metavar='PATH',
                       help='Path to latest checkpoint (default: none).')
-  parser.add_argument('--config', type=str, default='graph/configs/architecture.yaml',
+  parser.add_argument('--config', type=str, default='graph/configs/architecture_TT_GAT.yaml',
                       help="Which configuration to use. See into 'config' folder.")
   parser.add_argument('--save_dir', type=str, default='checkpoints', metavar='PATH',
                       help="Directory path to save model")
@@ -85,7 +85,8 @@ def main():
     time_interval=config['training']['time_interval'],
     model_name = config['training']['embed_model'],
     colab_path = opt.colab_path,
-    use_summary_node = config['model']['use_summary_node']
+    use_summary_node = config['model']['use_summary_node'],
+    v_a_connect=True
   )
   logger.info("Processing Validation Data")
   val_graphs, (_, _, _) = make_graph(
@@ -94,7 +95,8 @@ def main():
     time_interval=config['training']['time_interval'],
     model_name = config['training']['embed_model'],
     colab_path = opt.colab_path,
-  	use_summary_node = config['model']['use_summary_node']
+  	use_summary_node = config['model']['use_summary_node'],
+    v_a_connect=True
   )
 
   logger.info("__TRAINING_STATS__")
@@ -124,8 +126,8 @@ def main():
         audio_dim=a_dim,
         hidden_channels=config['model']['h_dim'] if config['model']['use_text_proj'] else t_dim,
         num_layers=config['model']['num_layers'],
-        bilstm_num_layers=config['model']['bilstm_num_layers'],
         num_classes=2,
+        bilstm_num_layers=2,
         dropout_dict=dropout_dict,
         heads=config['model']['head'],
         use_attention=config['model']['use_attention'],
@@ -139,8 +141,8 @@ def main():
         audio_dim=a_dim,
         hidden_channels=config['model']['h_dim'] if config['model']['use_text_proj'] else t_dim,
         num_layers=config['model']['num_layers'],
-        bilstm_num_layers=config['model']['bilstm_num_layers'],
         num_classes=2,
+        bilstm_num_layers=2,
         dropout_dict=dropout_dict,
         heads=config['model']['head'],
         use_attention=config['model']['use_attention'],
@@ -148,7 +150,7 @@ def main():
         use_text_proj=config['model']['use_text_proj']
     ).to(device)
   logger.info(f"Model initialized with:")
-  logger.info(f"  - Text dim: {train_graphs[0].x.shape[1]}")
+  logger.info(f"  - Text dim: {t_dim}")
   logger.info(f"  - Vision dim: {v_dim}")
   logger.info(f"  - Audio dim: {a_dim}")
   logger.info(f"  - Hidden channels: {config['model']['h_dim']}")
@@ -230,7 +232,7 @@ def main():
         scheduler.step(float(val_f1))
       else:
         scheduler.step()
-
+        
     current_lr = optimizer.param_groups[0]['lr']
     
     history['epoch'].append(epoch)
@@ -261,8 +263,6 @@ def main():
 
     check_lstm_grad(model.vision_lstm, "Vision LSTM")
     check_lstm_grad(model.audio_lstm, "Audio LSTM")
-    # check_gru_grad(model.vision_gru, "Vision GRU")
-    # check_gru_grad(model.audio_gru, "Audio GRU")
 
     checkpoint = {
       'epoch': epoch,
@@ -360,8 +360,8 @@ if __name__=="__main__":
   main()
 
 # first
-#   ex) python -m graph.multimodal_topic_bilstm_proxy.train --save_dir checkpoints_graph4 --save_dir_ multimodal_topic_bilstm_proxy_v2_1(focal) --num_epochs 300 --patience 30 --version 2
-#     -> epochs: 150, config_file: graph/configs/architecture.yaml, save_path: checkpoints_graph3/LSTM_graph_11(focal), patience: 30
+#   ex) python -m graph.multimodal_topic_bilstm.train --save_dir checkpoints_graph3 --save_dir_ LSTM_graph_11(focal) --num_epochs 150 --patience 30 --version 2
+#     -> epochs: 150, config_file: graph/configs/architecture.yaml, save_path: checkpoints_graph3/LSTM_graph_11(focal), patience: 30 (Using JKGAT)
 # resume
 #   ex) python graph/train.py --resume checkpoints/checkpoints1/best_model.pth
 
