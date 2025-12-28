@@ -1,6 +1,6 @@
 training:
   lr_list: [1e-6, 1e-4]
-  weight_decay_list: [1e-5, 1e-3]
+  weight_decay_list: [1e-5, 1e-2]
   bs_list: [4, 8]
   warmup_epoch: 5
   scheduler: 'reducelr'
