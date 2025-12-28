@@ -30,6 +30,20 @@ def check_lstm_grad(lstm_module, name="LSTM"):
   else:
     logger.info(f"{name} Grad: None")
 
+def check_gru_grad(gru_module, name="GRU"):
+  total_norm = 0.0
+  cnt = 0
+  for p_name, p in gru_module.gru.named_parameters():
+    if p.grad is not None:
+      param_norm = p.grad.data.norm(2)
+      total_norm += param_norm.item() ** 2
+      cnt += 1
+  if cnt > 0:
+    total_norm = total_norm ** 0.5
+    logger.info(f"{name} Total Grad Norm: {total_norm:.4f}")
+  else:
+    logger.info(f"{name} Grad: None")
+
 class FocalLoss(torch.nn.Module):
   def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
     super(FocalLoss, self).__init__()
