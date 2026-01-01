@@ -72,7 +72,7 @@ class AttentionGRU(nn.Module):
         """
         self.gru.flatten_parameters()
         packed = pack_padded_sequence(x, lengths.cpu(), batch_first=True, enforce_sorted=False)
-        packed_out, (h_n, c_n) = self.gru(packed)
+        packed_out, h_n = self.gru(packed)
 
         # output shape: (B, seq_len, hidden)
         gru_output, _ = pad_packed_sequence(packed_out, batch_first=True)
@@ -117,7 +117,7 @@ class SimpleGRU(nn.Module):
         """
         self.gru.flatten_parameters()
         packed = pack_padded_sequence(x, lengths.cpu(), batch_first=True, enforce_sorted=False)
-        packed_out, (h_n, c_n) = self.gru(packed)
+        packed_out, h_n = self.gru(packed)
 
         h_final = h_n[-1]
 
@@ -129,18 +129,18 @@ class SimpleGRU(nn.Module):
 class GATJKClassifier(nn.Module):
     def __init__(
             self,
-            text_dim,
-            vision_dim,
-            audio_dim,
-            hidden_channels,
-            num_layers,
-            gru_num_layers,
-            num_classes,
-            dropout_dict,
-            heads=8,
-            use_attention=False,
-            use_summary_node=True,
-            use_text_proj=True):
+            text_dim : int,
+            vision_dim : int,
+            audio_dim : int,
+            hidden_channels : int,
+            num_layers : int,
+            gru_num_layers : int,
+            num_classes : int,
+            dropout_dict : dict,
+            heads : int = 8,
+            use_attention : bool = False,
+            use_summary_node : bool = True,
+            use_text_proj : bool = True):
         """
         Args:
             text_dim: 텍스트 임베딩 차원 (summary, transcription)
@@ -151,14 +151,14 @@ class GATJKClassifier(nn.Module):
             gru_num_layers: BiLSTM 레이어 수
             num_classes: 분류 클래스 수
             heads: attention head 수
-            dropout: dropout 비율
+            dropout_dict: dropout 비율 dictionary
             use_attention: AttentionLSTM 사용 여부
             use_summary_node: Summary Node 사용 여부
             use_text_proj: Transcription Projection layer 사용 여부
         """
         super().__init__()
         
-        assert 2 <= num_layers and num_layers <= 4, logger.error("Number of Layers should be set between 2 and 4")
+        assert 2 <= num_layers <= 4, logger.error("Number of Layers should be set between 2 and 4")
         
         self.dropout_t = dropout_dict.get('text_dropout', 0.1)
         self.dropout_g = dropout_dict.get('graph_dropout', 0.1)
@@ -270,10 +270,12 @@ class GATJKClassifier(nn.Module):
         """
         Args:
             data: PyG Data 객체
-                - data.x: 노드 피처
-                - data.edge_index: 엣지 인덱스
-                - data.batch: 배치 정보
-                - data.node_types: 노드 타입 리스트 (len = num_nodes)
+                data.x: 노드 피처
+                data.edge_index: 엣지 인덱스
+                data.batch: 배치 정보
+                data.node_types: 노드 타입 리스트 (len = num_nodes)
+            explanation : bool
+                Used for precise decomposition of model's output
         """
         x, edge_index, batch = data.x, data.edge_index, data.batch
         x_vision = data.x_vision    # (Batch, Window_Num, Window_Size, v_dim)
