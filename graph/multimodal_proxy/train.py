@@ -81,6 +81,7 @@ def main():
   train_graphs, v_dim, a_dim = make_graph(
     ids = train_id+val_id,
     labels = train_label+val_label,
+    time_interval=config['training']['time_interval'],
     model_name = config['training']['embed_model'],
     colab_path = opt.colab_path,
     use_summary_node = config['model']['use_summary_node']
@@ -89,6 +90,7 @@ def main():
   val_graphs, _, _ = make_graph(
     ids = test_id,
     labels = test_label,
+    time_interval=config['training']['time_interval'],
     model_name = config['training']['embed_model'],
     colab_path = opt.colab_path,
   	use_summary_node = config['model']['use_summary_node']

@@ -29,9 +29,6 @@ logger.add(
   format="<green>{time:HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
 )
 
-MAX_SEQ_LEN_VISION = 150
-MAX_SEQ_LEN_AUDIO = 150
-
 kor_to_eng_dict = {
   "심리 상태 및 감정": "Psychological State and Emotional Well-being", 
   "개인 특성 및 취미": "Personal Traits and Life Experiences",
@@ -50,8 +47,36 @@ def pad_sequence_numpy(seq, max_len):
     padding = np.zeros((max_len - seq_len, feature_dim))
     return np.vstack([seq, padding])
 
-def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, t_t_connect=False, v_a_connect=False, visualization=False, explanation=False):
+def make_graph(
+    ids,
+    labels,
+    model_name,
+    time_interval,
+    colab_path=None,
+    use_summary_node=True,
+    t_t_connect=False,
+    v_a_connect=False,
+    visualization=False,
+    explanation=False
+  ):
+  """
+  make_graph's Docstring
+  
+  :param ids: List of patient ids
+  :param labels: List of depression labels
+  :param model_name: Language model name(HuggingFace)
+  :param time_interval: Time interval for seperating node (unit: second)
+  :param colab_path: Write your colab dataset path if you're using colab
+  :param use_summary_node: Whether you want to use summary node (else, the model will do pooling with topic nodes)
+  :param t_t_connect: Whether you want to connect text to text nodes regarding their temporal relationship
+  :param v_a_connect: Whether you want to connect vision to audio (or audio to vision) for aligning two multimodalities
+  :param visualization: Whether you want to visualize the graph construction (for a simple image, data is partially sampled)
+  :param explanation: Whether you want to use GNNExplainer or analyze specifically on the model
+  """
   try:
+    MAX_SEQ_LEN_VISION = time_interval * 30   # 1 data for vision = 0.333 seconds
+    MAX_SEQ_LEN_AUDIO = time_interval * 40    # 1 data for audio = 0.01 seconds -> with avg_pooling(kernel_size=3), 1 data = 0.3 seconds
+
     finish_utterance = ["asked everything", "asked_everything", "it was great chatting with you"]
     EXCLUDED_SESSIONS = ['342', '394', '398', '460']
     INTERRUPTED_SESSIONS = ['373', '444']
@@ -100,7 +125,7 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
         if not terminate_index.empty:
           df = df.iloc[:terminate_index.values[0]]
 
-        utterances, topics, start_stop_list, start_stop_list_ellie = process_transcription(df)
+        utterances, topics, start_stop_list, start_stop_list_ellie = process_transcription(df, time_interval)
 
         # Vision Scaling
         vision_df = process_vision(v_df, start_stop_list_ellie)
@@ -213,19 +238,10 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
           v_seq = vision_df.loc[(start <= vision_df['timestamp']) & (vision_df['timestamp'] <= stop)]
           v_target = v_seq.drop(columns=['timestamp']).values
 
-          v_tensor = torch.FloatTensor(v_target).T.unsqueeze(0)
+          if len(v_target) > 0:
+            actual_v_len = min(len(v_target), MAX_SEQ_LEN_VISION)
 
-          if v_tensor.size(-1) >= 3:
-            downsampled_v_tensor = F.avg_pool1d(v_tensor, kernel_size=3) # 0.1 second downsampling
-          else:
-            downsampled_v_tensor = v_tensor
-
-          downsampled_v_target = downsampled_v_tensor.squeeze(0).T.numpy()
-
-          if len(downsampled_v_target) > 0:
-            actual_v_len = min(len(downsampled_v_target), MAX_SEQ_LEN_VISION)
-
-            v_seq_padded = pad_sequence_numpy(downsampled_v_target, MAX_SEQ_LEN_VISION) # [Seq, Dim]
+            v_seq_padded = pad_sequence_numpy(v_target, MAX_SEQ_LEN_VISION) # [Seq, Dim]
             vision_seq_list.append(v_seq_padded)
             vision_lengths_list.append(actual_v_len) # 길이 저장
 
@@ -245,17 +261,17 @@ def make_graph(ids, labels, model_name, colab_path=None, use_summary_node=True, 
 
           a_tensor = torch.FloatTensor(a_target).T.unsqueeze(0)
 
-          if a_tensor.size(-1) >= 10:
-            downsampled_a_tensor = F.avg_pool1d(a_tensor, kernel_size=10) # 0.1 second downsampling
+          if len(a_tensor) >= 3:
+            downsampled_a_tensor = F.avg_pool1d(a_tensor, kernel_size=3)
           else:
             downsampled_a_tensor = a_tensor
 
-          downsampled_a_target = downsampled_a_tensor.squeeze(0).T.numpy()
+          downsampled_a_target = downsampled_a_tensor.T.squeeze(0).numpy()
 
           if len(downsampled_a_target)>0:
             actual_a_len = min(len(downsampled_a_target), MAX_SEQ_LEN_AUDIO)
 
-            a_seq_padded = pad_sequence_numpy(downsampled_a_target, MAX_SEQ_LEN_AUDIO)
+            a_seq_padded = pad_sequence_numpy(a_target, MAX_SEQ_LEN_AUDIO)
             audio_seq_list.append(a_seq_padded)
             audio_lengths_list.append(actual_a_len) # 길이 저장
 
@@ -385,6 +401,7 @@ if __name__=="__main__":
   train_graphs, (t_dim, v_dim, a_dim) = make_graph(
     ids = train_id,
     labels = train_label,
+    time_interval=10,
     model_name='sentence-transformers/all-MiniLM-L6-v2',
     use_summary_node=True,
     v_a_connect=False,

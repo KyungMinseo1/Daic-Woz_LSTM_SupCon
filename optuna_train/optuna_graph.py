@@ -308,6 +308,7 @@ def bilstm_objective(
 
       check_lstm_grad(model.vision_lstm, "Vision LSTM")
       check_lstm_grad(model.audio_lstm, "Audio LSTM")
+      logger.info(f"Epoch {epoch}: F1 {val_f1}")
 
       trial.report(val_f1, epoch)
       if trial.should_prune():
@@ -315,7 +316,7 @@ def bilstm_objective(
       
       if val_f1 > best_val_f1:
         best_val_f1 = val_f1
-        logger.info(f"New best model found! (Trial {trial.number}: F1 {best_val_f1})")
+        logger.info(f"New best model found! (Trial {trial.number} / Epoch {epoch}: F1 {best_val_f1})")
         torch.save(model.state_dict(), temp_path)
         patience_counter = 0
       else:
@@ -526,13 +527,15 @@ def objective(
         num_classes=2
       )
 
+      logger.info(f"Epoch {epoch}: F1 {val_f1}")
+
       trial.report(val_f1, epoch)
       if trial.should_prune():
         raise optuna.exceptions.TrialPruned()
       
       if val_f1 > best_val_f1:
         best_val_f1 = val_f1
-        logger.info(f"New best model found! (Trial {trial.number}: F1 {best_val_f1})")
+        logger.info(f"New best model found! (Trial {trial.number} / Epoch {epoch}: F1 {best_val_f1})")
         torch.save(model.state_dict(), temp_path)
         patience_counter = 0
       else:

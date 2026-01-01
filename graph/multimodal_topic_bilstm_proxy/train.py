@@ -82,6 +82,7 @@ def main():
   train_graphs, (t_dim, v_dim, a_dim) = make_graph(
     ids = train_id+val_id,
     labels = train_label+val_label,
+    time_interval=config['training']['time_interval'],
     model_name = config['training']['embed_model'],
     colab_path = opt.colab_path,
     use_summary_node = config['model']['use_summary_node']
@@ -90,6 +91,7 @@ def main():
   val_graphs, (_, _, _) = make_graph(
     ids = test_id,
     labels = test_label,
+    time_interval=config['training']['time_interval'],
     model_name = config['training']['embed_model'],
     colab_path = opt.colab_path,
   	use_summary_node = config['model']['use_summary_node']
@@ -120,7 +122,7 @@ def main():
         text_dim=t_dim,
         vision_dim=v_dim,
         audio_dim=a_dim,
-        hidden_channels=config['model']['h_dim'],
+        hidden_channels=config['model']['h_dim'] if config['model']['use_text_proj'] else t_dim,
         num_layers=config['model']['num_layers'],
         bilstm_num_layers=config['model']['bilstm_num_layers'],
         num_classes=2,
@@ -135,7 +137,7 @@ def main():
         text_dim=t_dim,
         vision_dim=v_dim,
         audio_dim=a_dim,
-        hidden_channels=config['model']['h_dim'],
+        hidden_channels=config['model']['h_dim'] if config['model']['use_text_proj'] else t_dim,
         num_layers=config['model']['num_layers'],
         bilstm_num_layers=config['model']['bilstm_num_layers'],
         num_classes=2,
@@ -259,6 +261,8 @@ def main():
 
     check_lstm_grad(model.vision_lstm, "Vision LSTM")
     check_lstm_grad(model.audio_lstm, "Audio LSTM")
+    # check_gru_grad(model.vision_gru, "Vision GRU")
+    # check_gru_grad(model.audio_gru, "Audio GRU")
 
     checkpoint = {
       'epoch': epoch,

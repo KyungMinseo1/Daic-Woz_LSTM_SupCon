@@ -80,6 +80,7 @@ def main():
   train_graphs, t_dim, v_dim, a_dim = make_graph(
     ids = train_id+val_id,
     labels = train_label+val_label,
+    time_interval=config['training']['time_interval'],
     model_name = config['training']['embed_model'],
     colab_path = opt.colab_path,
     use_summary_node = config['model']['use_summary_node'],
@@ -89,6 +90,7 @@ def main():
   val_graphs, _, _, _ = make_graph(
     ids = test_id,
     labels = test_label,
+    time_interval=config['training']['time_interval'],
     model_name = config['training']['embed_model'],
     colab_path = opt.colab_path,
   	use_summary_node = config['model']['use_summary_node'],
@@ -123,6 +125,7 @@ def main():
         audio_dim=a_dim,
         hidden_channels=config['model']['h_dim'],
         num_layers=config['model']['num_layers'],
+        bilstm_num_layers=config['model']['bilstm_num_layers'],
         num_classes=2,
         dropout_dict=dropout_dict,
         heads=config['model']['head'],
@@ -138,6 +141,7 @@ def main():
         audio_dim=a_dim,
         hidden_channels=t_dim,
         num_layers=config['model']['num_layers'],
+        bilstm_num_layers=config['model']['bilstm_num_layers'],
         num_classes=2,
         dropout_dict=dropout_dict,
         heads=config['model']['head'],
