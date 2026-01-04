@@ -214,6 +214,7 @@ checkpoints*
 temp*
 /sample
 !checkpoints_optuna
+!checkpoints_optuna4
 *.pth
 *explanation.py
 .idea
