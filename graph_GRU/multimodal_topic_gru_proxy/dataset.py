@@ -226,7 +226,7 @@ class TopicProxyGRU_GC(Graph_Constructor):
         a_dim = 0
 
       if config.explanation:
-        return graphs, (text_dim, v_dim, a_dim), (topic_node_id_dict, utterances, vision_seq_list, audio_seq_list)
+        return graphs, (text_dim, v_dim, a_dim), (topic_node_id_dict, utterances, vision_seq_list, audio_seq_list, start_stop_list)
       else:
         return graphs, (text_dim, v_dim, a_dim)
 
