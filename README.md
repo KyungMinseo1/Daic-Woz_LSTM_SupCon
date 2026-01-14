@@ -1,83 +1,122 @@
-## Daic-Woz-LSTM\_Graph (README.md)
+# Daic-Woz-LSTM-Graph
 
-### 1. 프로젝트 개요
+Official implementation for multimodal depression detection using BiLSTM/GRU and Graph Neural Networks (GNN) on the DAIC-WOZ dataset.
 
-이 프로젝트는 [DAIC-WOZ (Distress Analysis Interview Corpus - Wizard of Oz)] 데이터셋을 활용하여 다양한 **멀티모달(Multimodal)** 및 **토픽(Topic) 기반 BiLSTM-Graph** 모델을 구현하고 실험하기 위한 저장소입니다. 주요 목표는 대화 데이터의 텍스트, 음성, 시각적 특성을 통합하고 그래프 신경망(GNN) 구조를 활용하여 모델의 성능을 향상시키는 것입니다.
+This project integrates text, audio, and visual features from the [DAIC-WOZ (Distress Analysis Interview Corpus - Wizard of Oz)] dataset. It employs a topic-based graph structure to model the temporal and semantic relationships within clinical interviews.
 
------
+---
 
-### 2. 환경 설정 및 의존성
+## 🚀 Pipeline Overview
 
-프로젝트 실행을 위해 필요한 Python 라이브러리 및 환경 설정입니다.
+The project follows a sequential pipeline from data preparation to advanced analysis:
 
-#### 2.1. 의존성 설치
+1.  **Dataset Acquisition**: Download the original DAIC-WOZ dataset.
+2.  **Preprocessing**: Clean and format data using `notebooks/data_process.ipynb`.
+3.  **Topic Classification**: Utilize LLMs to classify dialogue topics via `notebooks/topic.ipynb`.
+4.  **Model Training**: Execute experiments using BiLSTM (`graph/`) or GRU (`graph_GRU/`) modules.
+5.  **Hyperparameter Optimization**: Conduct experiments with [Optuna](https://optuna.org/) using `optuna_train/`.
+6.  **In-depth Analysis**: Evaluate model performance and explainability using `graph_explanation/`.
 
-프로젝트 루트 디렉토리에서 아래 명령어를 실행하여 필요한 모든 라이브러리를 설치합니다.
+---
 
+## 🛠️ Requirements & Setup
+
+### Environment
+- **Language**: Python 3.10+
+- **Frameworks**: PyTorch, PyTorch Geometric (PyG), Optuna, Sentence-Transformers
+- **Package Manager**: pip
+
+### Installation
 ```bash
 pip install -r requirements.txt
 ```
+*Note: Ensure you have the appropriate CUDA version installed for PyTorch and PyG compatibility.*
 
-**주요 라이브러리:** `PyTorch`, `torch-geometric` (Graph Neural Network), `Sentence-Transformers`, `pandas`, `numpy`
+### Configuration (.env)
+Create a `.env` file in the root directory and add your OpenAI API key for topic classification:
+```text
+OPENAI_API_KEY=your_api_key_here
+```
 
------
+---
 
-### 3. 프로젝트 실행 및 데이터 준비
+## 📊 Data Preparation
 
-프로젝트의 학습을 진행하거나 데이터 구조를 확인하기 전에, 각 모델 구조에 맞는 데이터셋 파일이 올바르게 준비되었는지 확인해야 합니다. 모든 명령어는 **프로젝트의 루트 디렉토리** (`신 프로젝트/`)에서 실행해야 합니다.
+1.  **Original Dataset**: Ensure the DAIC-WOZ dataset is located in the `data/` directory.
+2.  **Preprocessing**: Run `notebooks/data_process.ipynb` to process raw transcripts and multimodal features.
+3.  **Topic Labeling**: Run `notebooks/topic.ipynb` to perform LLM-based topic extraction. This step is crucial for the topic-based graph construction.
 
-#### 3.1. 데이터셋 확인 및 스크립트 실행
+---
 
-아래 명령어들은 `python -m` 옵션을 사용하여 파이썬 패키지 구조 내의 `dataset.py` 파일을 모듈로서 실행합니다.
+## 🏋️ Training & Experiments
 
-| 설정 이름 | 실행 명령어 | 설명 |
+You can train individual modules or run hyperparameter optimization.
+
+### Single Model Training
+Run the training script for BiLSTM or GRU modules. 
+
+#### Example: Multimodal Topic BiLSTM Proxy
+```bash
+python -m graph.multimodal_topic_bilstm_proxy.train --num_epochs 100 --config graph/configs/architecture_TT_GAT.yaml --save_dir checkpoints --save_dir_ topic_bilstm_proxy
+```
+
+#### Example: Multimodal Topic GRU Proxy
+```bash
+python -m graph_GRU.multimodal_topic_gru_proxy.train --num_epochs 100 --config graph_GRU/configs/architecture_TT_GAT.yaml --save_dir checkpoints --save_dir_ topic_gru_proxy
+```
+
+### Argument Usage (Parse Args)
+Commonly used arguments for proxy modules:
+- `--num_epochs`: Number of training epochs (default: 100).
+- `--config`: Path to the YAML configuration file.
+- `--resume`: Path to a checkpoint to resume training from.
+- `--save_dir`: Base directory for saving checkpoints.
+- `--save_dir_`: Specific subdirectory for the current run.
+
+### Optuna Optimization
+To perform automated hyperparameter search:
+- **BiLSTM**: `python optuna_train/optuna_graph.py`
+- **GRU**: `python optuna_train/optuna_graph_gru.py`
+
+---
+
+## ⚙️ Configurations
+
+Model architectures and search spaces are managed via YAML files:
+
+| Type | Configuration File | Description |
 | :--- | :--- | :--- |
-| **Multimodal BiLSTM** | `python -m graph.multimodal_bilstm.dataset` | 일반 멀티모달 BiLSTM 설정의 데이터셋 시각화 스크립트 실행 |
-| **Multimodal Proxy** | `python -m graph.multimodal_proxy.dataset` | 멀티모달 프록시(Proxy) 설정의 데이터셋 시각화 스크립트 실행 |
-| **Multimodal Topic BiLSTM** | `python -m graph.multimodal_topic_bilstm.dataset` | 토픽 기반 멀티모달 BiLSTM 설정의 데이터셋 시각화 스크립트 실행 |
-| **Multimodal Topic BiLSTM Proxy** | `python -m graph.multimodal_topic_bilstm_proxy.dataset` | 토픽 BiLSTM 프록시 설정의 데이터셋 시각화 스크립트 실행 |
-| **Multimodal Topic Proxy** | `python -m graph.multimodal_topic_proxy.dataset` | 멀티모달 토픽 프록시 설정의 데이터셋 시각화 스크립트 실행 |
+| **BiLSTM Architecture** | `graph/configs/architecture_TT_GAT.yaml` | Standard architecture for LSTM-GNN models. |
+| **GRU Architecture** | `graph_GRU/configs/architecture_TT_GAT.yaml` | Standard architecture for GRU-GNN models. |
+| **Optuna (BiLSTM)** | `optuna_train/optuna_search_grid.yaml` | Search space for BiLSTM optimization. |
+| **Optuna (GRU)** | `optuna_train/optuna_search_grid_gru.yaml` | Search space for GRU optimization. |
 
-#### 3.2. 학습 스크립트 실행
+---
 
-각 모델 폴더 내의 `train.py` 파일을 실행하여 모델 학습을 시작합니다.
+## 🔍 Analysis & Explainability (`graph_explanation/`)
 
-```bash
-# 예시: Multimodal BiLSTM 모델 학습 실행
-python -m graph.multimodal_bilstm.train
+For deep analysis of the models:
+
+- **F1 Score Comparison**: Use `graph_explanation/f1_visualization.py` (or `.ipynb`) to compare F1 scores across various Optuna-trained models.
+  ```bash
+  python graph_explanation/f1_visualization.py --model_dir checkpoints_optuna
+  ```
+- **GNN Explainer**: Use `graph_explanation/visualization_audio_video_text.ipynb` to perform in-depth analysis using GNNExplainer, visualizing the importance of audio, video, and text features within the graph.
+
+---
+
+## 📂 Project Structure
+
+```text
+.
+├── graph/                # BiLSTM-based GNN models
+│   └── configs/          # YAML configurations for BiLSTM
+├── graph_GRU/            # GRU-based GNN models
+│   └── configs/          # YAML configurations for GRU
+├── graph_explanation/    # Visualization and explainability tools
+├── notebooks/            # Data processing and topic classification (Jupyter)
+├── optuna_train/         # Optuna hyperparameter optimization scripts
+├── data/                 # Dataset storage (DAIC-WOZ)
+├── checkpoints/          # Model checkpoints
+└── requirements.txt      # Dependency list
 ```
-
-혹은 `optuna`를 사용하여 학습을 진행할 수도 있습니다.
-
-```bash
-# 예시: Multimodal BiLSTM 모델 Optuna 학습 실행
-python optuna_train/optuna_graph.py --mode multimodal_bilstm --save_dir checkpoints_optuna --save_dir_ multimodal_bilstm
-```
------
-
-### 4. 프로젝트 구조 (개요)
-
-프로젝트 구조는 모듈화 및 재사용성을 고려하여 설계되었습니다.
-
-```
-신 프로젝트/
-├── graph/                        # 그래프 생성/학습 핵심 코드 및 패키지
-│   ├── configs/                  # 모델 하이퍼파라미터 및 데이터 설정 파일
-│   ├── extra/                    # 추가 스크립트
-│   ├── multimodal_bilstm/        # BiLSTM 기반 모델 구현 모듈
-│   ├── multimodal_proxy/         # Proxy 기반 모델 구현 모듈
-│   ├── ...
-│   ├── __init__.py               # Python 패키지 초기화 파일
-│   └── path_config.py            # 전역 변수 및 데이터 경로 설정 파일
-│
-├── optuna_train/                 # Optuna 학습
-│   ├── optuna_graph.py           # Optuna 학습 스크립트
-│   ├── optuna_search_grid.yaml   # Optuna 탐색 범위 지정 및 하이퍼파라미터 설정
-│   └── path_config.py            # 전역 변수 및 데이터 경로 설정 파일
-│
-├── checkpoints_optuna/           # 학습된 모델 체크포인트 저장소
-├── data/                         # 원본 데이터 및 전처리된 데이터 저장소
-└── requirements.txt              # 의존성 목록
-```
-
------
