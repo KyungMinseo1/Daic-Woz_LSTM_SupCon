@@ -109,14 +109,42 @@ For deep analysis of the models:
 
 ```text
 .
-├── graph/                # BiLSTM-based GNN models
-│   └── configs/          # YAML configurations for BiLSTM
-├── graph_GRU/            # GRU-based GNN models
-│   └── configs/          # YAML configurations for GRU
-├── graph_explanation/    # Visualization and explainability tools
-├── notebooks/            # Data processing and topic classification (Jupyter)
-├── optuna_train/         # Optuna hyperparameter optimization scripts
 ├── data/                 # Dataset storage (DAIC-WOZ)
+│   ├── Audio Summary/    # Summarized audio features
+│   ├── Raw Data/         # Original raw data files
+│   ├── Transcription/    # Dialogue transcripts
+│   ├── Transcription Topic/ # Topic-labeled transcripts
+│   ├── Vision Sumary/    # Summarized visual features
+│   ├── train_split_Depression_AVEC2017.csv # Training split info
+│   ├── dev_split_Depression_AVEC2017.csv   # Validation split info
+│   └── full_test_split.csv                 # Test split info
+│
+├── graph/                # BiLSTM-based GNN models
+│   ├── configs/          # YAML configurations for BiLSTM
+│   ├── multimodal_topic_bilstm_proxy/ # Core training module (BiLSTM)
+│   ├── train_val.py      # Common training/validation logic
+│   ├── graph_construct.py # Logic for graph construction
+│   └── preprocessing.py  # Logic for processing multimodal data
+│
+├── graph_GRU/            # GRU-based GNN models
+│   ├── configs/          # YAML configurations for GRU
+│   ├── multimodal_topic_gru_proxy/ # Core training module (GRU)
+│   ├── train_val.py      # Common training/validation logic
+│   ├── graph_construct.py # Logic for graph construction
+│   └── preprocessing.py  # Logic for processing multimodal data
+│
+├── graph_explanation/    # Visualization and explainability tools
+│   ├── f1_visualization.py # Script for comparing F1 scores
+│   └── visualization_audio_video_text.ipynb # GNNExplainer analysis
+│
+├── notebooks/            # Data processing and topic classification (Jupyter)
+│   ├── data_process.ipynb # Raw data cleaning and formatting
+│   └── topic.ipynb       # LLM-based topic labeling
+│
+├── optuna_train/         # Optuna hyperparameter optimization scripts
+│   ├── optuna_graph.py   # Optuna for BiLSTM
+│   └── optuna_graph_gru.py # Optuna for GRU
+│
 ├── checkpoints/          # Model checkpoints
 └── requirements.txt      # Dependency list
 ```
