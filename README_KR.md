@@ -116,43 +116,43 @@ python -m graph_GRU.multimodal_topic_gru_proxy.train --num_epochs 100 --config g
 
 ```text
 .
-├── data/                 # 데이터셋 저장소 (DAIC-WOZ)
-│   ├── Audio Summary/    # 요약된 오디오 특징
-│   ├── Raw Data/         # 원본 데이터 파일
-│   ├── Transcription/    # 대화 전사본
-│   ├── Transcription Topic/ # 토픽이 라벨링된 전사본
-│   ├── Vision Sumary/    # 요약된 시각 특징
+├── data/                                   # 데이터셋 저장소 (DAIC-WOZ)
+│   ├── Audio Summary/                      # 요약된 오디오 특징
+│   ├── Raw Data/                           # 원본 데이터 파일
+│   ├── Transcription/                      # 대화 전사본
+│   ├── Transcription Topic/                # 토픽이 라벨링된 전사본
+│   ├── Vision Sumary/                      # 요약된 시각 특징
 │   ├── train_split_Depression_AVEC2017.csv # 학습 데이터 분할 정보
 │   ├── dev_split_Depression_AVEC2017.csv   # 검증 데이터 분할 정보
 │   └── full_test_split.csv                 # 테스트 데이터 분할 정보
 │
-├── graph/                # BiLSTM 기반 GNN 모델
-│   ├── configs/          # BiLSTM을 위한 YAML 설정
-│   ├── multimodal_topic_bilstm_proxy/ # 핵심 학습 모듈 (BiLSTM)
-│   ├── train_val.py      # 공통 학습/검증 로직
-│   ├── graph_construct.py # 그래프 구축 로직
-│   └── preprocessing.py  # 멀티모달 데이터 가공 로직
+├── graph/                                  # BiLSTM 기반 GNN 모델
+│   ├── configs/                            # BiLSTM을 위한 YAML 설정
+│   ├── multimodal_topic_bilstm_proxy/      # 핵심 학습 모듈 (BiLSTM)
+│   ├── train_val.py                        # 공통 학습/검증 로직
+│   ├── graph_construct.py                  # 그래프 구축 로직
+│   └── preprocessing.py                    # 멀티모달 데이터 가공 로직
 │
-├── graph_GRU/            # GRU 기반 GNN 모델
-│   ├── configs/          # GRU를 위한 YAML 설정
-│   ├── multimodal_topic_gru_proxy/ # 핵심 학습 모듈 (GRU)
-│   ├── train_val.py      # 공통 학습/검증 로직
-│   ├── graph_construct.py # 그래프 구축 로직
-│   └── preprocessing.py  # 멀티모달 데이터 가공 로직
+├── graph_GRU/                              # GRU 기반 GNN 모델
+│   ├── configs/                            # GRU를 위한 YAML 설정
+│   ├── multimodal_topic_gru_proxy/         # 핵심 학습 모듈 (GRU)
+│   ├── train_val.py                        # 공통 학습/검증 로직
+│   ├── graph_construct.py                  # 그래프 구축 로직
+│   └── preprocessing.py                    # 멀티모달 데이터 가공 로직
 │
-├── graph_explanation/    # 시각화 및 설명 가능성 도구
-│   ├── f1_visualization.py # F1 점수 비교 스크립트
+├── graph_explanation/                      # 시각화 및 설명 가능성 도구
+│   ├── f1_visualization.py                 # F1 점수 비교 스크립트
 │   └── visualization_audio_video_text.ipynb # GNNExplainer 분석
 │
-├── notebooks/            # 데이터 처리 및 토픽 분류 (Jupyter)
-│   ├── data_process.ipynb # 원본 데이터 정제 및 포맷팅
-│   └── topic.ipynb       # LLM 기반 토픽 라벨링
+├── notebooks/                              # 데이터 처리 및 토픽 분류 (Jupyter)
+│   ├── data_process.ipynb                  # 원본 데이터 정제 및 포맷팅
+│   └── topic.ipynb                         # LLM 기반 토픽 라벨링
 │
-├── optuna_train/         # Optuna 하이퍼파라미터 최적화 스크립트
-│   ├── optuna_graph.py   # BiLSTM용 Optuna
-│   └── optuna_graph_gru.py # GRU용 Optuna
+├── optuna_train/                           # Optuna 하이퍼파라미터 최적화 스크립트
+│   ├── optuna_graph.py                     # BiLSTM용 Optuna
+│   └── optuna_graph_gru.py                 # GRU용 Optuna
 
-├── checkpoints/          # 모델 체크포인트
-└── requirements.txt      # 의존성 목록
+├── checkpoints/                            # 모델 체크포인트
+└── requirements.txt                        # 의존성 목록
 ```
 
